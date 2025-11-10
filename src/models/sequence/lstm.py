@@ -22,5 +22,12 @@ class LSTMSeq(nn.Module):
 
     
     def forward(self, x):
-        x = self.lstm(x)
-        return self.batch_norm(x)
+        # LSTM returns (output, (h_n, c_n)), we only need the output
+        lstm_out, _ = self.lstm(x)
+        # lstm_out shape: (batch, seq_len, hidden_dim)
+        # BatchNorm1d expects (batch, features, seq_len) or (batch, features)
+        # We need to transpose to (batch, hidden_dim, seq_len) for BatchNorm1d
+        lstm_out = lstm_out.transpose(1, 2)  # (batch, hidden_dim, seq_len)
+        lstm_out = self.batch_norm(lstm_out)
+        # Transpose back to (batch, seq_len, hidden_dim)
+        return lstm_out.transpose(1, 2)

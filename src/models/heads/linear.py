@@ -3,8 +3,8 @@
 import torch
 from torch import nn
 
-# Assuming Quaternions
-OUTPUT_DIM = 4
+# Position (3) + Quaternion (4) = 7 values
+OUTPUT_DIM = 7
 
 class LinearHead(nn.Module):
     def __init__(self, hidden_dim, *args, **kwargs):
