@@ -7,7 +7,7 @@ from config import Config
 from dataset import create_dataloaders
 from model import create_model
 from metrics import pose_6dof_loss
-from train import train_model, evaluate, load_checkpoint
+from baseline.train import train_model, evaluate, load_checkpoint
 from plotting import plot_training_history, print_metrics
 
 
