@@ -63,6 +63,7 @@ class EasyComDataLoader:
     def load_audio(self, wav_file: Path) -> Tuple[Optional[np.ndarray], Optional[int]]:
         try:
             fs, data = wavfile.read(str(wav_file))
+            assert fs == self.FS_AUDIO
             data = convert_int_to_float(data)
             self.stats['success'] += 1
             return data, fs
@@ -75,8 +76,8 @@ class EasyComDataLoader:
         #Load pose data for audio file
         session_name = f"Session_{session_id}"
         pose_file = self.tracked_poses_dir / session_name / (wav_file.stem + ".json")
-        if not pose_file.exists():
-            return None
+        if not pose_file.exists() or not pose_file.is_file():
+            raise ValueError(f"Corresponding pose file {pose_file} does not exist for session #{session_id} and wave file {wav_file}!")
         with open(pose_file, 'r') as f:
             return json.load(f)
 
@@ -85,7 +86,7 @@ class EasyComDataLoader:
         session_name = f"Session_{session_id}"
         trans_file = self.speech_transcriptions_dir / session_name / (wav_file.stem + ".json")
         if not trans_file.exists():
-            return None
+            return ValueError(f"Corresponding transcript file {trans_file} does not exist for session #{session_id} and wave file {wav_file}!")
         with open(trans_file, 'r') as f:
             return json.load(f)
 
@@ -93,9 +94,9 @@ class EasyComDataLoader:
         # (position + rotation) for glasses wearer
         n_frames = len(poses_data)
         pose_6dof = np.zeros((n_frames, 7), dtype=np.float32)
-
-        found_wearer = False
+        
         for frame_idx, frame in enumerate(poses_data):
+            found_wearer = False
             for participant in frame["Participants"]:
                 if participant["Participant_ID"] == self.ARRAY_WEARER_ID:
                     pose_6dof[frame_idx, 0] = participant["Position_X"]
@@ -107,10 +108,19 @@ class EasyComDataLoader:
                     pose_6dof[frame_idx, 6] = participant["Quaternion_W"] #[x, y, z, qx, qy, qz, qw]
                     found_wearer = True
                     break
+            assert(found_wearer)
 
-        return pose_6dof if found_wearer else None
+        return pose_6dof
 
     def get_all_participant_ids(self, poses_data: List[dict]) -> List[int]:
+        '''
+        Function retrieves the unique participant IDs from a pose list read from a .json file. 
+        
+        :param poses_data: The list of orientation frame data as read from an orientation .json file. 
+                    As read by, e.g., self.load_speech_transcriptions() 
+        
+        :returns: A list with the unique participants ID in the list of frames. 
+        '''
         #Get unique participant IDs from poses data
         return sorted(list(set(
             part["Participant_ID"]
@@ -120,23 +130,40 @@ class EasyComDataLoader:
 
     def create_speech_lookup(self, transcription_data: Optional[List[dict]], 
                            n_frames: int) -> Dict[int, List[bool]]:
+        '''
+        Function return a lookup dictionary that looks like:
+            lookup[participant_id][frame_id] = True if participant participant_id talks/is active in frame_id 
+                                             = False if participant participant_id does not talk/is not active in frame_id
+        
+            Note that the lookup works even if a participant_id is not in a wave-file - it will always return False!
+        
+        Use with, e.g., doesParticipantTalkInFrame(lookup, 2, 119).
+        
+        :param transcription_data: Dictionary of transcription data. See load_speech_transcriptions().
+        :param n_frames: Number of frames in the current transcription data.
+        
+        :returns: a defaultdict as a lookup table of booleans where you can fastly query whether a participant ID talked in a frame.
+                Use, e.g., doesParticipantTalkInFrame() helper function.
+        '''
         #lookup for when participants speak.
-
+        
+        # Factory method: whenever a new Participant_ID is seen, it will create a fresh list of 
+        #  length expected_N_frames_head_tracking+1 (so indices go from 0 to expected_N_frames_head_tracking) 
+        #  filled with False:
         lookup = defaultdict(lambda: [False] * n_frames)
 
         if transcription_data is None:
-            return lookup
+            raise ValueError("create_speech_lookup() ERROR: Transcription data not intialized!")
 
         for segment in transcription_data:
             pid = segment["Participant_ID"]
+            # Python index starts at 0, seems that .json index starts at 1:
             start = segment["Start_Frame"] - 1
             end = segment["End_Frame"] - 1
-
-            for frame_idx in range(start, end):
-                if 0 <= frame_idx < n_frames:
-                    lookup[pid][frame_idx] = True
+            assert(end<=n_frames and start>=0) # Negligible perf effects
+            lookup[pid][start:end] = [True] * (end - start)
 
         return lookup
 
     def print_stats(self):
-        print(f"Audio loading: {self.stats['success']} success, {self.stats['failed']} failed")
+        print(f"  Audio loading: {self.stats['success']} success, {self.stats['failed']} failed")
