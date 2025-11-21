@@ -60,6 +60,10 @@ class AudioPoseDataset(Dataset):
             with h5py.File(fn_, "r") as f:
                 root_groups = [name for name in f.keys() if isinstance(f[name], h5py.Group)]
                 session_ids = []
+                file_filter_silence = f["filter_silence"][...]
+                if not file_filter_silence == self.filter_silence:
+                    raise ValueError(f"Cached hdf5 file has filtered silence to {file_filter_silence}, but the dataset needs to have filtered silence to {self.filter_silence}.\nb"
+                                     "Use different filename for cache or change filter_silence input.")
                 for group_string in root_groups:
                     match = re.search(r"session_(\d+)", group_string)
                     if match:
@@ -82,12 +86,12 @@ class AudioPoseDataset(Dataset):
             
             # dump data:
             with h5py.File(fn_, "w") as f:
+                f.create_dataset("filter_silence", data = self.filter_silence)
                 for idx, session_id in enumerate(session_ids):
                     session_group = f.create_group(f"session_{session_id}")
                     session_group.create_dataset("audio_frames", data=audio_arrays_sessions[idx])
                     session_group.create_dataset("wearer_pose", data=wearer_pose_arrays_sessions[idx])
 
-            
         self.all_audio_frames = np.concatenate(audio_arrays_sessions, axis = 0)
         self.all_wearer_pose_6dof = np.concatenate(wearer_pose_arrays_sessions, axis = 0)
         assert(self.all_audio_frames.shape[0] == self.all_wearer_pose_6dof.shape[0])
