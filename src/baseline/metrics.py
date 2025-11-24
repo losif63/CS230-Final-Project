@@ -4,10 +4,8 @@ from typing import Dict
 
 
 def pose_6dof_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    #Combined loss for position and rotation.
     position_loss = F.mse_loss(pred[:, :3], target[:, :3]) # Position loss (MSE on x, y, z)
 
-    #Rotation loss (quaternion) - handles q and -q representing same rotation
     pred_quat = pred[:, 3:]
     target_quat = target[:, 3:]
 
@@ -25,7 +23,7 @@ def compute_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float
     #Compute MSE and MAE for position and rotation
     # Position metrics
     position_error = pred[:, :3] - target[:, :3]
-    position_mse = (position_error ** 2).mean().item()
+    position_mse = torch.sqrt((position_error ** 2).sum(dim=1)).mean().item() #euclidean
     position_mae = position_error.abs().mean().item()
 
     # Rotation metrics (quaternion MSE/MAE)
