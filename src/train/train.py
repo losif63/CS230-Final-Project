@@ -4,6 +4,7 @@ import torch, torchaudio
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from torch.nn.utils.rnn import pad_sequence
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from pathlib import Path
 import json
 from scipy.io import wavfile
@@ -241,11 +242,14 @@ def collate_fn(batch):
     return audio_batch, pose_batch
 
 
-def train_epoch(model, dataloader, optimizer, criterion, device):
+def train_epoch(model, dataloader, config, criterion, device):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
     num_batches = 0
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=config.num_epochs)
+
     
     for audio, pose in dataloader:
         audio = audio.to(device)
@@ -268,6 +272,7 @@ def train_epoch(model, dataloader, optimizer, criterion, device):
         # Backward pass
         loss.backward()
         optimizer.step()
+        scheduler.step()
         
         total_loss += loss.item()
         num_batches += 1
@@ -383,7 +388,6 @@ def run_experiment(config: TrainConfig,
     # Model / optimizer / loss
     model = AudioPoseModel(config=config).to(device)
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
 
     # wandb (optional)
     if WANDB_AVAILABLE:
@@ -405,7 +409,7 @@ def run_experiment(config: TrainConfig,
     print(f"[{run_dir.name}] Starting training with config:\n{config}")
 
     for epoch in tqdm(range(config.num_epochs), desc=f"{run_dir.name}"):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        train_loss = train_epoch(model, train_loader, config, criterion, device)
         dev_metrics = evaluate(model, dev_loader, criterion, device)
 
         train_losses.append(train_loss)
@@ -493,7 +497,7 @@ def main():
     }
 
     # 🔥 Learning rate sweep
-    learning_rates = [1e-3, 5e-4, 1e-4]
+    learning_rates = [1e-4, 2e-4, 3e-4, 5e-4]
 
     runs_root = Path("runs")
     for lr in learning_rates:
@@ -502,7 +506,7 @@ def main():
         config = TrainConfig(cfg_dict)
 
         # Folder name like: runs/lr_1e-04, lr_3e-04, lr_1e-03
-        run_name = f"lr_{lr:.0e}"
+        run_name = f"lr_{lr:.0e}+annealing"
         run_dir = runs_root / run_name
 
         run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
