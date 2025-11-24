@@ -1,3 +1,4 @@
 data/**
 **pycache**
 .DS_Store
+wandb/**

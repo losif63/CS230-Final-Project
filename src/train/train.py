@@ -9,8 +9,7 @@ import json
 from scipy.io import wavfile
 import numpy as np
 from tqdm import tqdm
-import matplotlib.pyplot as plt
-from datetime import datetime
+from typing import Dict
 
 # Try to import wandb, but make it optional
 try:
@@ -32,11 +31,62 @@ from utils.utilsIO import (
     get_paths, get_head_tracking_fs, get_corresponding_array_orientation_data,
     get_unique_part_IDs, unpack_6DOF_data, convert_int_to_float
 )
+from utils.save import save_training_history, plot_training_curves
 
 # Constants
 SAMPLE_RATE = 48000
 FRAME_LEN = 0.05
 SAMPLES_PER_FRAME = int(SAMPLE_RATE * FRAME_LEN)  # 2400
+
+
+class TrainConfig():
+    def __init__(self, config: Dict):
+        self.batch_size = config["batch_size"]
+        self.hidden_dim = config["hidden_dim"]
+        self.num_layers = config["num_layers"]
+        self.dropout = config["dropout"]
+        self.num_epochs = config["num_epochs"]
+        self.learning_rate = config["learning_rate"]
+
+        self.feature_extractor = config["feature_extractor"]
+        self.sequence_model = config["sequence_model"]
+        self.head = config["head"]
+    
+    def __str__(self):
+        def classname(x):
+            # Handles both classes and instances
+            return x.__name__ if isinstance(x, type) else x.__class__.__name__
+
+        return (
+            "TrainConfig(\n"
+            f"  batch_size={self.batch_size},\n"
+            f"  hidden_dim={self.hidden_dim},\n"
+            f"  num_layers={self.num_layers},\n"
+            f"  dropout={self.dropout},\n"
+            f"  num_epochs={self.num_epochs},\n"
+            f"  learning_rate={self.learning_rate},\n"
+            f"  feature_extractor={classname(self.feature_extractor)},\n"
+            f"  sequence_model={classname(self.sequence_model)},\n"
+            f"  head={classname(self.head)}\n"
+            ")"
+        )
+
+    def to_dict(self):
+        def classname(x):
+            # Handles both classes and instances
+            return x.__name__ if isinstance(x, type) else x.__class__.__name__ 
+        """Convert to a JSON-serializable dict (classes → string names)."""
+        return {
+            "batch_size": self.batch_size,
+            "hidden_dim": self.hidden_dim,
+            "num_layers": self.num_layers,
+            "dropout": self.dropout,
+            "num_epochs": self.num_epochs,
+            "learning_rate": self.learning_rate,
+            "feature_extractor": classname(self.feature_extractor),
+            "sequence_model": classname(self.sequence_model),
+            "head": classname(self.head),
+        }
 
 
 class AudioPoseDataset(Dataset):
@@ -129,12 +179,12 @@ class AudioPoseDataset(Dataset):
 class AudioPoseModel(nn.Module):
     """Full model combining LinearExtractor, LSTMSeq, and LinearHead."""
     
-    def __init__(self, hidden_dim=128, num_layers=2, dropout=0.1):
+    def __init__(self, config: TrainConfig):
         super().__init__()
         self.num_channels = 6
-        self.feature_extractor = LinearExtractor(input_dim=2400, hidden_dim=hidden_dim)
-        self.sequence_model = LSTMSeq(hidden_dim=hidden_dim * self.num_channels, num_layers=num_layers, dropout=dropout)
-        self.head = LinearHead(hidden_dim=hidden_dim * self.num_channels)
+        self.feature_extractor = config.feature_extractor(input_dim=2400, hidden_dim=config.hidden_dim)
+        self.sequence_model = config.sequence_model(hidden_dim=config.hidden_dim * self.num_channels, num_layers=config.num_layers, dropout=config.dropout)
+        self.head = config.head(hidden_dim=config.hidden_dim * self.num_channels)
     
     def forward(self, x):
         """
@@ -303,62 +353,116 @@ def evaluate(model, dataloader, criterion, device):
         'angular_error': avg_angular_error
     }
 
+def run_experiment(config: TrainConfig,
+                   train_dataset,
+                   dev_dataset,
+                   test_dataset,
+                   run_dir: Path):
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-def plot_training_curves(train_losses, dev_losses, save_path="training_curves.png"):
-    """Plot training and validation loss curves.
-    
-    Args:
-        train_losses: List of training losses per epoch
-        dev_losses: List of validation losses per epoch
-        save_path: Path to save the plot
-    """
-    plt.figure(figsize=(10, 6))
-    epochs = range(1, len(train_losses) + 1)
-    
-    plt.plot(epochs, train_losses, 'b-', label='Train Loss', linewidth=2, marker='o')
-    plt.plot(epochs, dev_losses, 'r-', label='Dev Loss', linewidth=2, marker='s')
-    
-    plt.xlabel('Epoch', fontsize=12)
-    plt.ylabel('Loss', fontsize=12)
-    plt.title('Training and Validation Loss', fontsize=14, fontweight='bold')
-    plt.legend(fontsize=11)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"Training curves saved to {save_path}")
-    plt.close()
+    # Save config for bookkeeping
+    with open(run_dir / "config.json", "w") as f:
+        json.dump(config.to_dict(), f, indent=2)
 
+    # Dataloaders
+    train_loader = DataLoader(train_dataset, batch_size=config.batch_size,
+                              shuffle=True, collate_fn=collate_fn)
+    dev_loader = DataLoader(dev_dataset, batch_size=config.batch_size,
+                            shuffle=False, collate_fn=collate_fn)
+    test_loader = DataLoader(test_dataset, batch_size=config.batch_size,
+                             shuffle=False, collate_fn=collate_fn)
 
-def save_training_history(train_losses, dev_losses, dev_positional_errors, dev_angular_errors, 
-                         test_metrics, save_path="training_history.json"):
-    """Save training history to JSON file.
-    
-    Args:
-        train_losses: List of training losses per epoch
-        dev_losses: List of validation losses per epoch
-        dev_positional_errors: List of validation positional errors per epoch
-        dev_angular_errors: List of validation angular errors per epoch
-        test_metrics: Dictionary with test set metrics
-        save_path: Path to save the JSON file
-    """
-    history = {
-        "train_losses": train_losses,
-        "dev_losses": dev_losses,
-        "dev_positional_errors": dev_positional_errors,
-        "dev_angular_errors": dev_angular_errors,
-        "test_loss": test_metrics['loss'],
-        "test_positional_error": test_metrics['positional_error'],
-        "test_angular_error": test_metrics['angular_error'],
-        "num_epochs": len(train_losses),
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    with open(save_path, 'w') as f:
-        json.dump(history, f, indent=2)
-    
-    print(f"Training history saved to {save_path}")
+    # Device
+    device = torch.device("cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    print(f"[{run_dir.name}] Running on device {device}")
 
+    # Model / optimizer / loss
+    model = AudioPoseModel(config=config).to(device)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+
+    # wandb (optional)
+    if WANDB_AVAILABLE:
+        wandb.init(
+            project="audio-pose-prediction",
+            name=f"lr_{config.learning_rate:.0e}",
+            config=config.to_dict(),
+        )
+        wandb.watch(model)
+
+    train_losses = []
+    dev_losses = []
+    dev_positional_errors = []
+    dev_angular_errors = []
+
+    best_dev_loss = float('inf')
+    best_model_path = run_dir / "best_model.pth"
+
+    print(f"[{run_dir.name}] Starting training with config:\n{config}")
+
+    for epoch in tqdm(range(config.num_epochs), desc=f"{run_dir.name}"):
+        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
+        dev_metrics = evaluate(model, dev_loader, criterion, device)
+
+        train_losses.append(train_loss)
+        dev_losses.append(dev_metrics['loss'])
+        dev_positional_errors.append(dev_metrics['positional_error'])
+        dev_angular_errors.append(dev_metrics['angular_error'])
+
+        if WANDB_AVAILABLE:
+            wandb.log({
+                "epoch": epoch + 1,
+                "train_loss": train_loss,
+                "dev_loss": dev_metrics['loss'],
+                "dev_positional_error": dev_metrics['positional_error'],
+                "dev_angular_error": dev_metrics['angular_error'],
+            })
+
+        print(f"[{run_dir.name}] Epoch {epoch+1}/{config.num_epochs}")
+        print(f"  Train Loss: {train_loss:.6f}")
+        print(f"  Dev Loss: {dev_metrics['loss']:.6f}")
+        print(f"  Dev Positional Error: {dev_metrics['positional_error']:.4f} m")
+        print(f"  Dev Angular Error: {dev_metrics['angular_error']:.4f}°")
+
+        if dev_metrics['loss'] < best_dev_loss:
+            best_dev_loss = dev_metrics['loss']
+            torch.save(model.state_dict(), best_model_path)
+            print(f"  Saved best model to {best_model_path} (dev loss: {best_dev_loss:.6f})")
+
+        print()
+
+    # Test with best model
+    print(f"[{run_dir.name}] Evaluating best model on test set...")
+    model.load_state_dict(torch.load(best_model_path, map_location=device))
+    test_metrics = evaluate(model, test_loader, criterion, device)
+
+    print(f"[{run_dir.name}] Test Loss: {test_metrics['loss']:.6f}")
+    print(f"[{run_dir.name}] Test Positional Error: {test_metrics['positional_error']:.4f} m")
+    print(f"[{run_dir.name}] Test Angular Error: {test_metrics['angular_error']:.4f}°")
+
+    if WANDB_AVAILABLE:
+        wandb.log({
+            "test_loss": test_metrics['loss'],
+            "test_positional_error": test_metrics['positional_error'],
+            "test_angular_error": test_metrics['angular_error'],
+        })
+        wandb.finish()
+
+    # Save history & curves into this run directory
+    save_training_history(
+        train_losses, dev_losses,
+        dev_positional_errors, dev_angular_errors,
+        test_metrics,
+        save_path=run_dir / "training_history.json"
+    )
+    plot_training_curves(
+        train_losses, dev_losses,
+        save_path=run_dir / "training_curve.png"
+    )
 
 def main():
     # Configuration
@@ -371,123 +475,37 @@ def main():
     dev_sessions = [11]                  # Session 11
     test_sessions = [12]                  # Session 12
     
-    # Model hyperparameters
-    hidden_dim = 32
-    num_layers = 2
-    dropout = 0.1
-    batch_size = 4
-    num_epochs = 10
-    learning_rate = 1e-3
-    
-    
     # Create datasets
     print("Loading datasets...")
     train_dataset = AudioPoseDataset(audio_dir, pose_dir, train_sessions, participant_id=2)
     dev_dataset = AudioPoseDataset(audio_dir, pose_dir, dev_sessions, participant_id=2)
     test_dataset = AudioPoseDataset(audio_dir, pose_dir, test_sessions, participant_id=2)
     
-    # Create dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, collate_fn=collate_fn)
-    dev_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_fn)
+    base_config = {
+        "batch_size": 4,
+        "hidden_dim": 16,
+        "num_layers": 1,
+        "dropout": 0.1,
+        "num_epochs": 20,
+        "feature_extractor": LinearExtractor,
+        "sequence_model": LSTMSeq,
+        "head": LinearHead,
+    }
 
-    # Set device
-    device = torch.device("cpu")
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    print(f"Running on device {device}")
+    # 🔥 Learning rate sweep
+    learning_rates = [1e-3, 5e-4, 1e-4]
 
-    # Create model
-    model = AudioPoseModel(hidden_dim=hidden_dim, num_layers=num_layers, dropout=dropout)
-    model = model.to(device)
-    
-    # Loss and optimizer
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    
-    # Initialize wandb if available
-    if WANDB_AVAILABLE:
-        wandb.init(
-            project="audio-pose-prediction",
-            config={
-                "hidden_dim": hidden_dim,
-                "num_layers": num_layers,
-                "dropout": dropout,
-                "batch_size": batch_size,
-                "num_epochs": num_epochs,
-                "learning_rate": learning_rate,
-                "train_sessions": train_sessions,
-                "dev_sessions": dev_sessions,
-                "test_sessions": test_sessions,
-            }
-        )
-        wandb.watch(model)
-    
-    # Track training history
-    train_losses = []
-    dev_losses = []
-    dev_positional_errors = []
-    dev_angular_errors = []
-    
-    # Training loop
-    print("Starting training...")
-    best_dev_loss = float('inf')
-    
-    for epoch in tqdm(range(num_epochs)):
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        dev_metrics = evaluate(model, dev_loader, criterion, device)
-        
-        # Track history
-        train_losses.append(train_loss)
-        dev_losses.append(dev_metrics['loss'])
-        dev_positional_errors.append(dev_metrics['positional_error'])
-        dev_angular_errors.append(dev_metrics['angular_error'])
-        
-        # Log to wandb if available
-        if WANDB_AVAILABLE:
-            wandb.log({
-                "epoch": epoch + 1,
-                "train_loss": train_loss,
-                "dev_loss": dev_metrics['loss'],
-                "dev_positional_error": dev_metrics['positional_error'],
-                "dev_angular_error": dev_metrics['angular_error'],
-            })
-        
-        print(f"Epoch {epoch+1}/{num_epochs}")
-        print(f"  Train Loss: {train_loss:.6f}")
-        print(f"  Dev Loss: {dev_metrics['loss']:.6f}")
-        print(f"  Dev Positional Error: {dev_metrics['positional_error']:.4f} m")
-        print(f"  Dev Angular Error: {dev_metrics['angular_error']:.4f}°")
-        
-        # Save best model
-        if dev_metrics['loss'] < best_dev_loss:
-            best_dev_loss = dev_metrics['loss']
-            torch.save(model.state_dict(), "best_model.pth")
-            print(f"  Saved best model (dev loss: {dev_metrics['loss']:.6f})")
-        print()
-    
-    # Evaluate on test set
-    print("Evaluating on test set...")
-    model.load_state_dict(torch.load("best_model.pth"))
-    test_metrics = evaluate(model, test_loader, criterion, device)
-    print(f"Test Loss: {test_metrics['loss']:.6f}")
-    print(f"Test Positional Error: {test_metrics['positional_error']:.4f} m")
-    print(f"Test Angular Error: {test_metrics['angular_error']:.4f}°")
-    
-    # Log test metrics to wandb
-    if WANDB_AVAILABLE:
-        wandb.log({
-            "test_loss": test_metrics['loss'],
-            "test_positional_error": test_metrics['positional_error'],
-            "test_angular_error": test_metrics['angular_error'],
-        })
-        wandb.finish()
-    
-    # Save training history and plot curves
-    save_training_history(train_losses, dev_losses, dev_positional_errors, dev_angular_errors, test_metrics)
-    plot_training_curves(train_losses, dev_losses)
+    runs_root = Path("runs")
+    for lr in learning_rates:
+        cfg_dict = dict(base_config)
+        cfg_dict["learning_rate"] = lr
+        config = TrainConfig(cfg_dict)
+
+        # Folder name like: runs/lr_1e-04, lr_3e-04, lr_1e-03
+        run_name = f"lr_{lr:.0e}"
+        run_dir = runs_root / run_name
+
+        run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
 
 
 if __name__ == '__main__':
