@@ -12,7 +12,7 @@ class Config:
     SAMPLES_PER_FRAME = int(FS_AUDIO / FS_HEAD_TRACKING)  # 2400
     
     # Session splits
-    TRAIN_SESSIONS = list(range(1, 3))  # Sessions 1-10
+    TRAIN_SESSIONS = list(range(1, 11))  # Sessions 1-10
     VAL_SESSIONS = [11]                   # Session 11
     TEST_SESSIONS = [12]                  # Session 12
     
@@ -36,7 +36,7 @@ class Config:
     NUM_EPOCHS = 10
     LEARNING_RATE = 1e-4
     WEIGHT_DECAY = 1e-5
-    NUM_WORKERS = 4 
+    NUM_WORKERS = 0 # For windows...
     
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
     SEED = 42
