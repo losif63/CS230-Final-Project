@@ -9,6 +9,8 @@ from tqdm.auto import tqdm
 
 import time, datetime
 
+import matplotlib.pyplot as plt
+
 from src.CNN import data_utils
 import src.baseline.config
 
@@ -122,7 +124,11 @@ class AudioPoseDataset(Dataset):
                     
                     if audio is None:
                         raise ValueError(f"Got no audio for file {wav_file}!")
-
+                    
+                    # Remove DC global:
+                    audio_DC = np.average(audio, axis = 0)
+                    audio -= audio_DC
+                    
                     n_samples, n_channels = audio.shape
                     
                     if max(self.use_channels) >= n_channels:
@@ -169,6 +175,11 @@ class AudioPoseDataset(Dataset):
                         # Cache audio frame
                         audio_frame = audio[start_sample:end_sample, self.use_channels].T
                         audio_frame = audio_frame.astype(np.float32)
+                        
+                        # Remove DC (?):
+                        # audio_frame_DC = np.average(audio_frame, axis = 1)
+                        #audio_frame -= audio_frame_DC[:,None]
+                                                
                         # We'll use self.all_audio_frames and self.all_wearer_pose_6dof as cached data instead
                         # self.samples.append({
                         #     'audio_frame': audio_frame,  # (n_channels, 2400)
