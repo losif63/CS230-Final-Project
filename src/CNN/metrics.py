@@ -2,10 +2,11 @@ import torch
 import torch.nn.functional as F
 from typing import Dict
 
-def pose_6dof_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-    #Combined loss for position and rotation.
+def position_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     position_loss = F.mse_loss(pred[:, :3], target[:, :3]) # Position loss (MSE on x, y, z)
+    return position_loss
 
+def rotation_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     #Rotation loss (quaternion) - handles q and -q representing same rotation
     pred_quat = pred[:, 3:]
     target_quat = target[:, 3:]
@@ -14,10 +15,12 @@ def pose_6dof_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
     quat_loss_pos = F.mse_loss(pred_quat, target_quat)
     quat_loss_neg = F.mse_loss(pred_quat, -target_quat)
     rotation_loss = torch.min(quat_loss_pos, quat_loss_neg)
+    
+    return rotation_loss
 
-    total_loss = position_loss + rotation_loss
-
-    return total_loss
+def pose_6dof_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    #Combined loss for position and rotation.
+    return position_loss(pred, target) + rotation_loss(pred, target)
 
 
 def compute_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float]:

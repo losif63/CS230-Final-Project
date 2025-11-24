@@ -91,7 +91,8 @@ def getCnnOutputDimensions(
     return tuple(outDims)
 
 class CNNModel1D(nn.Module):
-    def __init__(self, 
+    def __init__(self,
+                 model_name = "first_test", 
                  n_channels = 6, 
                  samples_per_frame = 2400,
                  cnn_num_filter_list = [64, 128, 256, 256], #same as output channels
@@ -105,16 +106,46 @@ class CNNModel1D(nn.Module):
                  dropout = 0.3
                ):
         """
-        The function will conduct 1D convolutions across the RAW audio input!
+        Build a 1D CNN + FC regression model for audio-to-pose mapping.
         
         Inputs:
-            n_channels: Number of audio channels
-            samples_per_frame: Number of audio samples per frame
-            cnn filter config:
-                cnn_num_filter_list: The number of filters (e.g., output channels
-            FC_hidden_dims: List of hidden layer dimensions of the last FC layers.
-            output_dim: Output dimension (7 for 6DOF: 3 position + 4 quaternion)
-            dropout: Dropout probability
+            model_name: Model name - used in saving data and other parameters. Use this when you train a lot of these models. 
+            n_channels (int):
+                Number of audio channels in the input (e.g., 6 for multi-mic setup).
+            samples_per_frame (int):
+                Number of raw audio samples per frame (input length per channel).
+            cnn_num_filter_list (list[int]):
+                Output channels (filters) for each Conv1d layer.
+            cnn_filter_size_list (list[int]):
+                Kernel sizes for each Conv1d layer.
+            cnn_stride_list (list[int]):
+                Strides for each Conv1d layer.
+            cnn_padding_list (list[int]):
+                Padding values for each Conv1d layer.
+            max_pool_filter_size_list (list[int]):
+                Kernel sizes for MaxPool1d layers. Use 0 to skip pooling at that stage.
+            max_pool_stride_size_list (list[int]):
+                Strides for MaxPool1d layers. Use 0 to skip pooling at that stage.
+            FC_hidden_dims (list[int]):
+                Hidden layer sizes for the fully connected stack.
+                Each FC layer is followed by BatchNorm1d, ReLU, and Dropout.
+            output_dim (int):
+                Dimension of the final regression output.
+                For 6DOF pose: 3 position + 4 quaternion = 7.
+            dropout (float):
+                Dropout probability applied after CNN and FC activations
+                (typical range: 0.1-0.5).
+        
+        Architecture:
+            - CNN stack: Conv1d -> BatchNorm1d -> ReLU -> Dropout -> (optional MaxPool1d)
+            - Flatten
+            - FC stack: Linear -> BatchNorm1d -> ReLU -> Dropout (repeated per hidden dim)
+            - Output layer: Linear -> regression output (no BN/Dropout)
+
+        Notes:
+            - BatchNorm parameters are tracked separately (gamma + beta per channel).
+            - Dropout regularizes both CNN and FC layers.
+            - Parameter counts are computed and stored in self.trainable_params.
         """
         self.n_cnn_filters = len(cnn_num_filter_list)
         assert self.n_cnn_filters == len(cnn_filter_size_list)
@@ -128,6 +159,8 @@ class CNNModel1D(nn.Module):
         self.n_channels = n_channels
         self.samples_per_frame = samples_per_frame
         self.output_dim = output_dim
+        
+        self.model_name = model_name
         
         input_dim = samples_per_frame
         prev_channels = n_channels
@@ -177,13 +210,14 @@ class CNNModel1D(nn.Module):
         #######################
         for h_dim in FC_hidden_dims:
             layers.append(nn.Linear(prev_dim, h_dim))
+            # Batchnorm:
+            layers.append(nn.BatchNorm1d(h_dim))
+            batch_norm_channels+= h_dim*2
             self.trainable_params.append( {'FC (weights + biases)': h_dim*prev_dim+h_dim} )
+            # Activation:
             layers.append(nn.ReLU())
-            # Maybe BatchNorm:
-            #layers.append(nn.BatchNorm1d(h_dim))
-            # batch_norm_channels+= h_dim*2
-            # Maybe Dropout:
-            # layers.append(nn.Dropout(dropout))
+            # Dropout:
+            layers.append(nn.Dropout(dropout))
             prev_dim = h_dim
 
         layers.append(nn.Linear(prev_dim, output_dim))
@@ -217,20 +251,33 @@ class CNNModel1D(nn.Module):
         return torch.cat([position, quaternion], dim=1)
 
 
-def create_model(config: src.baseline.config.Config):
+def create_model(model_name = "first_test", 
+                 n_channels = 6, 
+                 samples_per_frame = 2400,
+                 cnn_num_filter_list = [64, 128, 256, 256], #same as output channels
+                 cnn_filter_size_list = [128, 128, 64, 8],
+                 cnn_stride_list = [1, 1, 1, 1],
+                 cnn_padding_list = [0, 0, 0, 0],
+                 max_pool_filter_size_list = [0, 2, 4, 6], # use 0 to skip
+                 max_pool_stride_size_list = [2, 2, 4, 6], # use 0 to skip
+                 FC_hidden_dims = [512, 256, 128],
+                 output_dim = 7, 
+                 dropout = 0.3,
+                 config: src.baseline.config.Config = None):
     # Currently only manual parameters...
     model = CNNModel1D(
-           n_channels = 6, 
-           samples_per_frame = 2400,
-           cnn_num_filter_list = [64, 128, 256, 256], #same as output channels
-           cnn_filter_size_list = [128, 128, 64, 8],
-           cnn_stride_list = [1, 1, 1, 1],
-           cnn_padding_list = [0, 0, 0, 0],
-           max_pool_filter_size_list = [0, 2, 4, 6], # use 0 to skip
-           max_pool_stride_size_list = [2, 2, 4, 6], # use 0 to skip
-           FC_hidden_dims = [512, 256, 128],
-           output_dim = 7, 
-           dropout = 0.3
+           model_name = model_name,
+           n_channels = n_channels, 
+           samples_per_frame = samples_per_frame,
+           cnn_num_filter_list = cnn_num_filter_list, #same as output channels
+           cnn_filter_size_list = cnn_filter_size_list,
+           cnn_stride_list = cnn_stride_list,
+           cnn_padding_list = cnn_padding_list,
+           max_pool_filter_size_list = max_pool_filter_size_list, # use 0 to skip
+           max_pool_stride_size_list = max_pool_stride_size_list, # use 0 to skip
+           FC_hidden_dims = FC_hidden_dims,
+           output_dim = output_dim, 
+           dropout = dropout
         )
     model = model.to(config.DEVICE)
     

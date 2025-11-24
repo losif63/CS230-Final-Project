@@ -10,7 +10,7 @@ from typing import Dict, Any, Callable
 import tqdm
 import os
 
-from src.CNN import metrics
+from src.CNN import metrics as metrics_module
 
 def train_epoch(model: torch.nn.Module, 
                 dataloader: DataLoader, 
@@ -20,13 +20,25 @@ def train_epoch(model: torch.nn.Module,
     model.train() # No runtime overhead
     total_loss = 0.0
     num_batches = 0
-    for audio, pose in tqdm.tqdm(dataloader, desc='Training', leave=False):
+    pbar = tqdm.tqdm(dataloader, desc='Training', leave=False)
+    for audio, pose in pbar:
         audio = audio.to(device)
         pose = pose.to(device)
 
         optimizer.zero_grad()
         pred_pose = model(audio)
         loss = lossFunction(pred_pose, pose)
+        
+        pos_loss = metrics_module.position_loss(pred_pose, pose)
+        rot_loss = metrics_module.rotation_loss(pred_pose, pose)
+        
+        pbar.set_postfix({
+            'Pos Loss': f"{pos_loss.item():.4f}",
+            'Rot Loss': f"{rot_loss.item():.4f}",
+            'Ratio POS/ROT': f"{pos_loss.item()/rot_loss.item():.4f}"
+        })
+
+        
         loss.backward()
         optimizer.step() # Update weights
 
@@ -68,13 +80,13 @@ def train_model(model: torch.nn.Module,
 
         print(f"\nTrain Loss: {train_loss:.6f}")
         print(f"Val Loss: {val_metrics['loss']:.6f}")
-        print(f"\nPosition Metrics:")
-        print(f"  MSE: {val_metrics['position_mse']:.6f}")
-        print(f"  MAE: {val_metrics['position_mae']:.6f}")
-        print(f"\nRotation Metrics:")
-        print(f"  Quaternion MSE: {val_metrics['rotation_mse']:.6f}")
-        print(f"  Quaternion MAE: {val_metrics['rotation_mae']:.6f}")
-        print(f"  Angular Error: {val_metrics['angular_error_deg']:.2f}°")
+        print(f"\nPosition Metrics (Validation):")
+        print(f"  Validation MSE: {val_metrics['position_mse']:.6f}")
+        print(f"  Validation MAE: {val_metrics['position_mae']:.6f}")
+        print(f"\nRotation Metrics (Validation):")
+        print(f"  Validation Quaternion MSE: {val_metrics['rotation_mse']:.6f}")
+        print(f"  Validation Quaternion MAE: {val_metrics['rotation_mae']:.6f}")
+        print(f"  Validation Angular Error: {val_metrics['angular_error_deg']:.2f}\u00B0")
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
@@ -88,6 +100,22 @@ def train_model(model: torch.nn.Module,
                 'history': history
             }, checkpoint_path)
             print(f" Saved best model (val loss: {best_val_loss:.6f})")
+
+    # Save last model:
+    torch.save({
+        'epoch': epoch,                      # current epoch
+        'model_state_dict': model,
+        'optimizer_state_dict': optimizer.state_dict(),
+        'history': history,
+    }, "latest_trained_model_checkpoint.pth")
+    
+    # Load and resume training (when needed):
+    # checkpoint = torch.load("latest_trained_model_checkpoint.pth")
+    # model.load_state_dict(checkpoint['model_state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    # start_epoch = checkpoint['epoch'] + 1   # resume from next epoch
+    # #last_loss = checkpoint['loss']
+    # print(f"Resuming from epoch {start_epoch}")
 
     return history
 
@@ -106,14 +134,25 @@ def evaluate(model: torch.nn.Module,
     }
 
     with torch.no_grad():
-        for audio, pose in tqdm.tqdm(dataloader, desc='Evaluating', leave=False):
+        pbar = tqdm.tqdm(dataloader, desc='Evaluating', leave=False)
+        for audio, pose in pbar:
             audio = audio.to(device)
             pose = pose.to(device)
 
             pred_pose = model(audio)
             loss = lossFunction(pred_pose, pose)
+            
+            pos_loss = metrics_module.position_loss(pred_pose, pose)
+            rot_loss = metrics_module.rotation_loss(pred_pose, pose)
+            
+            pbar.set_postfix({
+                'Pos Loss': f"{pos_loss.item():.4f}",
+                'Rot Loss': f"{rot_loss.item():.4f}",
+                'Ratio POS/ROT': f"{pos_loss.item()/rot_loss.item():.4f}"
+            })
+            
             total_loss += loss.item()
-            metrics = metrics.compute_metrics(pred_pose, pose)
+            metrics = metrics_module.compute_metrics(pred_pose, pose)
             for key, value in metrics.items():
                 all_metrics[key].append(value)
 
