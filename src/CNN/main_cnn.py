@@ -32,11 +32,15 @@ def set_seed(seed: int):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+def getPlottingFileName(training_results_dir, cnnModel):
+    os.makedirs(training_results_dir, exist_ok=True)
+    return training_results_dir / f'{cnnModel.getModelName()}__training_results.png'
 
 if __name__ == '__main__':
     print("Main CNN starting...")
     
-    set_seed(config.Config.SEED)    
+    set_seed(config.Config.SEED)
+    training_results_dir = config.Config.TRAINING_RESUTLS_DIR
     #config.Config.print_config()
     
     print(f"Creating CNN model:")
@@ -56,7 +60,7 @@ if __name__ == '__main__':
                  config = config.Config
                  )
     # torchsummary.summary(cnnModel, input_size = (6, 2400))
-    
+    plotting_file = getPlottingFileName(training_results_dir, cnnModel)
     start = time.perf_counter()
     train_loader, val_loader, test_loader = dataset.create_dataloaders(config.Config)
     end = time.perf_counter()
@@ -81,11 +85,13 @@ if __name__ == '__main__':
         save_dir=str(config.Config.CHECKPOINT_DIR)
     )
     print(f"\n\n   DONE TRAINING - took {datetime.timedelta(seconds= time.perf_counter()-start)}")
-    plotting.plot_training_history(history, save_path='training_results.png')
+    print(f"Plotting to file {plotting_file}")
+    
+    plotting.plot_training_history(history, save_path=plotting_file)
     
     print("Done plotting. Starting testing on TEST dataset:")
     start = time.perf_counter()
-    checkpoint_path = os.path.join(config.Config.CHECKPOINT_DIR, 'best_model.pth')
+    checkpoint_path = os.path.join(config.Config.CHECKPOINT_DIR, f'{cnnModel.getModelName()}__best_model.pth')
     train.load_checkpoint(cnnModel, checkpoint_path, config.Config.DEVICE)
     
     test_metrics = train.evaluate(cnnModel, test_loader, metrics.pose_6dof_loss, config.Config.DEVICE)

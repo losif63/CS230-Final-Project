@@ -229,6 +229,9 @@ class CNNModel1D(nn.Module):
 
         self.CnNetwork = nn.Sequential(*layers)
         
+    def getModelName(self) -> str:
+        return self.model_name
+        
     def getTotalTrainableParams(self):
         if self.trainable_params is None:
             return 0

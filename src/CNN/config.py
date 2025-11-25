@@ -4,7 +4,8 @@ from pathlib import Path
 
 class Config:    
     DATA_ROOT = Path(r"D:\Temp_S230_Database\Main") 
-    CHECKPOINT_DIR = Path("./checkpoints")    
+    CHECKPOINT_DIR = Path("./checkpoints")
+    TRAINING_RESUTLS_DIR = Path("./training_results")
     FS_AUDIO = 48000
     FS_HEAD_TRACKING = 20.0
     DT_HEAD_TRACKING = 1.0 / FS_HEAD_TRACKING

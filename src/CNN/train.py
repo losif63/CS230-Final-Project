@@ -57,6 +57,8 @@ def train_model(model: torch.nn.Module,
                 device: torch.device,
                 save_dir: str = './checkpoints') -> Dict[str, list]:
     os.makedirs(save_dir, exist_ok=True)
+    # Check call to getModelName(), so it crashes fast before training:
+    model.getModelName()
 
     best_val_loss = float('inf')
     history = {
@@ -90,7 +92,7 @@ def train_model(model: torch.nn.Module,
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
-            checkpoint_path = os.path.join(save_dir, 'best_model.pth')
+            checkpoint_path = os.path.join(save_dir, f'{model.getModelName()}__best_model.pth')
             torch.save({
                 'epoch': epoch,
                 'model_state_dict': model.state_dict(),
@@ -102,12 +104,13 @@ def train_model(model: torch.nn.Module,
             print(f" Saved best model (val loss: {best_val_loss:.6f})")
 
     # Save last model:
+    checkpoint_best_path = os.path.join(save_dir, f'{model.getModelName()}__latest_trained_model_checkpoint.pth')
     torch.save({
         'epoch': epoch,                      # current epoch
         'model_state_dict': model,
         'optimizer_state_dict': optimizer.state_dict(),
         'history': history,
-    }, "latest_trained_model_checkpoint.pth")
+    }, checkpoint_best_path)
     
     # Load and resume training (when needed):
     # checkpoint = torch.load("latest_trained_model_checkpoint.pth")
