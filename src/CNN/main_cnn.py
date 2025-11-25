@@ -1,6 +1,11 @@
 '''
 Created on Nov 20, 2025
 
+    Minimum window size: about 300 samples
+    
+        1m travel distance --> time = 1m/340 --> N_samples = t/dT=t*fs --> N_samples = 1m/340 * fs = 1/340*48000 = 141.172 samples
+        2m travel distance --> ... --> N_samples = 2m/340 * 48000 = 282.344 samples 
+
 @author: Sebastian Prepelita, based on file from Prerana Rane
 '''
 import time, datetime
@@ -59,12 +64,34 @@ if __name__ == '__main__':
                  dropout = 0.3,
                  config = config.Config
                  )
+    
     # torchsummary.summary(cnnModel, input_size = (6, 2400))
     plotting_file = getPlottingFileName(training_results_dir, cnnModel)
     start = time.perf_counter()
     train_loader, val_loader, test_loader = dataset.create_dataloaders(config.Config)
     end = time.perf_counter()
     print(f"   Data loading took {datetime.timedelta(seconds=end-start)}")
+    
+    
+    ########################## Make better use of train errors:
+    checkpoint_path = os.path.join(config.Config.CHECKPOINT_DIR, f'{cnnModel.getModelName()}__latest_trained_model.pth')
+    checkpoint = train.load_checkpoint(cnnModel, checkpoint_path, config.Config.DEVICE)
+    epoch_checkpoint = checkpoint['epoch']
+    history_checkpoint = checkpoint['history']
+    
+    
+    test_metrics = train.evaluate_per_samples(cnnModel, test_loader, metrics.pose_6dof_loss, config.Config.DEVICE, evalTest = True)
+    plotting.print_metrics(test_metrics, title="Test Set Results [per sample]")    
+    
+    sys.exit()
+    
+    # TODO:
+    #   1) Dump history of per sample test error : both averages and historical data --> .hdf5 file
+    #   2) Plot history of per sample test errors. Clearly show the averages on the plot for fast comparison.
+    #   3) Create .json file with inputs for models --> read first entry and train
+    #   4) Proliferate with multiple trainings in parallel:
+    #    4.2) Use multiple GPUs on the same machine
+    ################################################
     
     print(f"Creating ADAM optimizer...")
     optimizer = torch.optim.Adam(
@@ -91,10 +118,12 @@ if __name__ == '__main__':
     
     print("Done plotting. Starting testing on TEST dataset:")
     start = time.perf_counter()
-    checkpoint_path = os.path.join(config.Config.CHECKPOINT_DIR, f'{cnnModel.getModelName()}__best_model.pth')
-    train.load_checkpoint(cnnModel, checkpoint_path, config.Config.DEVICE)
+    checkpoint_path = os.path.join(config.Config.CHECKPOINT_DIR, f'{cnnModel.getModelName()}__latest_trained_model.pth')
+    checkpoint = train.load_checkpoint(cnnModel, checkpoint_path, config.Config.DEVICE)
+    epoch_checkpoint = checkpoint['epoch']
+    history_checkpoint = checkpoint['history']
     
-    test_metrics = train.evaluate(cnnModel, test_loader, metrics.pose_6dof_loss, config.Config.DEVICE)
-    plotting.print_metrics(test_metrics, title="Test Set Results")    
+    test_metrics = train.evaluate_per_samples(cnnModel, test_loader, metrics.pose_6dof_loss, config.Config.DEVICE, evalTest = True)
+    plotting.print_metrics(test_metrics, title="Test Set Results [per sample]")
     
     print("Main CNN ending...")

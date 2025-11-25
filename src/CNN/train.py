@@ -62,9 +62,9 @@ def train_model(model: torch.nn.Module,
 
     best_val_loss = float('inf')
     history = {
-        'train_loss': [], 'val_loss': [],
-        'val_position_mae': [], 'val_rotation_mae': [],
-        'val_angular_error': []
+        'train_loss': np.ones(num_epochs)*-1.0, 'val_loss': np.ones(num_epochs)*-1.0,
+        'val_position_mae': np.ones(num_epochs)*-1.0, 'val_rotation_mae': np.ones(num_epochs)*-1.0,
+        'val_angular_error': np.ones(num_epochs)*-1.0
     }
     model.train()
     for epoch in range(num_epochs):
@@ -74,21 +74,21 @@ def train_model(model: torch.nn.Module,
 
         train_loss = train_epoch(model = model, dataloader = train_loader, lossFunction = lossFunction, optimizer = optimizer, device = device)
         val_metrics = evaluate(model, val_loader, lossFunction, device)
-        history['train_loss'].append(train_loss)
-        history['val_loss'].append(val_metrics['loss'])
-        history['val_position_mae'].append(val_metrics['position_mae'])
-        history['val_rotation_mae'].append(val_metrics['rotation_mae'])
-        history['val_angular_error'].append(val_metrics['angular_error_deg'])
+        history['train_loss'][epoch] = train_loss
+        history['val_loss'][epoch] = val_metrics['loss']
+        history['val_position_mae'][epoch] = val_metrics['position_mae']
+        history['val_rotation_mae'][epoch] = val_metrics['rotation_mae']
+        history['val_angular_error'][epoch] = val_metrics['angular_error_deg']
 
         print(f"\nTrain Loss: {train_loss:.6f}")
-        print(f"Val Loss: {val_metrics['loss']:.6f}")
+        print(f"Val. Loss: {val_metrics['loss']:.6f}")
         print(f"\nPosition Metrics (Validation):")
-        print(f"  Validation MSE: {val_metrics['position_mse']:.6f}")
-        print(f"  Validation MAE: {val_metrics['position_mae']:.6f}")
+        print(f"  Val. MSE: {val_metrics['position_mse']:.6f}")
+        print(f"  Val. MAE: {val_metrics['position_mae']:.6f}")
         print(f"\nRotation Metrics (Validation):")
-        print(f"  Validation Quaternion MSE: {val_metrics['rotation_mse']:.6f}")
-        print(f"  Validation Quaternion MAE: {val_metrics['rotation_mae']:.6f}")
-        print(f"  Validation Angular Error: {val_metrics['angular_error_deg']:.2f}\u00B0")
+        print(f"  Val. Quaternion MSE: {val_metrics['rotation_mse']:.6f}")
+        print(f"  Val. Quaternion MAE: {val_metrics['rotation_mae']:.6f}")
+        print(f"  Val. Angular Error: {val_metrics['angular_error_deg']:.2f}\u00B0")
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
@@ -104,11 +104,12 @@ def train_model(model: torch.nn.Module,
             print(f" Saved best model (val loss: {best_val_loss:.6f})")
 
     # Save last model:
-    checkpoint_best_path = os.path.join(save_dir, f'{model.getModelName()}__latest_trained_model_checkpoint.pth')
+    checkpoint_best_path = os.path.join(save_dir, f'{model.getModelName()}__latest_trained_model.pth')
     torch.save({
         'epoch': epoch,                      # current epoch
-        'model_state_dict': model,
+        'model_state_dict': model.state_dict(),
         'optimizer_state_dict': optimizer.state_dict(),
+        'val_loss': val_metrics['loss'],
         'history': history,
     }, checkpoint_best_path)
     
@@ -119,26 +120,29 @@ def train_model(model: torch.nn.Module,
     # start_epoch = checkpoint['epoch'] + 1   # resume from next epoch
     # #last_loss = checkpoint['loss']
     # print(f"Resuming from epoch {start_epoch}")
-
     return history
 
 
 def evaluate(model: torch.nn.Module, 
              dataloader: DataLoader, 
              lossFunction: Callable,
-             device: torch.device) -> Dict[str, float]:
+             device: torch.device,
+             evalTest = False) -> Dict[str, float]:
     model.eval()
 
     total_loss = 0.0
     all_metrics = {
-        'position_mse': [], 'position_mae': [],
-        'rotation_mse': [], 'rotation_mae': [],
-        'angular_error_deg': []
+        'position_mse': np.full(len(dataloader), np.nan, dtype = np.float64), 'position_mae': np.full(len(dataloader), np.nan, dtype = np.float64),
+        'rotation_mse': np.full(len(dataloader), np.nan, dtype = np.float64), 'rotation_mae': np.full(len(dataloader), np.nan, dtype = np.float64),
+        'angular_error_deg': np.full(len(dataloader), np.nan, dtype = np.float64)
     }
-
+    if evalTest:
+        desc_ = 'Testing'
+    else:
+        desc_ = 'Evaluating'
     with torch.no_grad():
-        pbar = tqdm.tqdm(dataloader, desc='Evaluating', leave=False)
-        for audio, pose in pbar:
+        pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False)
+        for idx, (audio, pose) in enumerate(pbar):
             audio = audio.to(device)
             pose = pose.to(device)
 
@@ -153,11 +157,62 @@ def evaluate(model: torch.nn.Module,
                 'Rot Loss': f"{rot_loss.item():.4f}",
                 'Ratio POS/ROT': f"{pos_loss.item()/rot_loss.item():.4f}"
             })
-            
             total_loss += loss.item()
             metrics = metrics_module.compute_metrics(pred_pose, pose)
             for key, value in metrics.items():
-                all_metrics[key].append(value)
+                all_metrics[key][idx] = value
+
+    avg_loss = total_loss / len(dataloader)
+    avg_metrics = {key: np.mean(values) for key, values in all_metrics.items()}
+    avg_metrics['loss'] = avg_loss
+
+    return avg_metrics
+
+def evaluate_per_samples(model: torch.nn.Module, 
+             dataloader: DataLoader, 
+             lossFunction: Callable,
+             device: torch.device,
+             evalTest = False) -> Dict[str, float]:
+    model.eval()
+
+    total_loss = 0.0
+    num_samples = len(dataloader.dataset)  # total samples, not batches
+    
+    all_metrics = {
+        'position_mse': np.full(num_samples, np.nan, dtype = np.float64), 'position_mae': np.full(num_samples, np.nan, dtype = np.float64),
+        'rotation_mse': np.full(num_samples, np.nan, dtype = np.float64), 'rotation_mae': np.full(num_samples, np.nan, dtype = np.float64),
+        'angular_error_deg': np.full(num_samples, np.nan, dtype = np.float64)
+    }
+    if evalTest:
+        desc_ = 'Testing [per sample]'
+    else:
+        desc_ = 'Evaluating [per sample]'
+    start_idx = 0
+    with torch.no_grad():
+        pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False)
+        for audio_batch, pose_batch in pbar:
+            batch_size = audio_batch.size(0)
+            end_idx = start_idx + batch_size
+            
+            audio = audio_batch.to(device)
+            pose = pose_batch.to(device)
+
+            pred_pose = model(audio)
+            loss = lossFunction(pred_pose, pose)
+            
+            pos_loss = metrics_module.position_loss(pred_pose, pose)
+            rot_loss = metrics_module.rotation_loss(pred_pose, pose)
+            
+            pbar.set_postfix({
+                'Pos Loss': f"{pos_loss.item():.4f}",
+                'Rot Loss': f"{rot_loss.item():.4f}",
+                'Ratio POS/ROT': f"{pos_loss.item()/rot_loss.item():.4f}"
+            })
+            total_loss += loss.item()
+            per_sample_metrics = metrics_module.compute_metrics_per_sample(pred_pose, pose)
+            for key, values in per_sample_metrics.items():
+                all_metrics[key][start_idx:end_idx] = values
+            start_idx = end_idx
 
     avg_loss = total_loss / len(dataloader)
     avg_metrics = {key: np.mean(values) for key, values in all_metrics.items()}
@@ -171,11 +226,13 @@ def load_checkpoint(model: torch.nn.Module,
                    optimizer: torch.optim.Optimizer = None) -> Dict[str, Any]:
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     model.load_state_dict(checkpoint['model_state_dict'])
+    epoch_checkpoint = checkpoint['epoch']
+    # history_checkpoint = checkpoint['history']
     
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
-    print(f" Loaded checkpoint from epoch {checkpoint['epoch']+1}")
+    print(f" Loaded checkpoint from epoch {epoch_checkpoint + 1}")
     print(f" Validation loss: {checkpoint['val_loss']:.6f}")
     
     return checkpoint
