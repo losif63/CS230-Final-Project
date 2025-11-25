@@ -7,7 +7,6 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from pathlib import Path
 import json
-from scipy.io import wavfile
 import numpy as np
 from tqdm import tqdm
 from typing import Dict
@@ -28,10 +27,7 @@ from models.sequence import LSTMSeq
 from models.heads import LinearHead
 
 # Import utility functions
-from utils.utilsIO import (
-    get_paths, get_head_tracking_fs, get_corresponding_array_orientation_data,
-    get_unique_part_IDs, unpack_6DOF_data, convert_int_to_float
-)
+from utils.utilsIO import get_head_tracking_fs
 from utils.save import save_training_history, plot_training_curves
 
 # Constants
@@ -89,92 +85,65 @@ class TrainConfig():
             "head": classname(self.head),
         }
 
-
 class AudioPoseDataset(Dataset):
-    """Dataset for audio-pose pairs from EasyCom dataset."""
-    
-    def __init__(self, audio_dir, pose_dir, session_ids, participant_id=2):
-        """
-        Args:
-            audio_dir: Path to Glasses_Microphone_Array_Audio directory
-            pose_dir: Path to Tracked_Poses directory
-            session_ids: List of session IDs to include (e.g., [1, 2, ..., 10])
-            participant_id: Participant ID to extract pose for (default: 2)
-        """
-        self.audio_dir = Path(audio_dir)
-        self.pose_dir = Path(pose_dir)
-        self.session_ids = session_ids
-        self.participant_id = participant_id
-        
-        self.fs_head_tracking = get_head_tracking_fs()
-        self.dT_head_tracking = 1.0 / self.fs_head_tracking
-        
-        # Collect all audio-pose pairs
-        self.samples = []
-        for session_id in session_ids:
-            session_name = f"Session_{session_id}"
-            session_audio_dir = self.audio_dir / session_name
-            session_pose_dir = self.pose_dir / session_name
-            
-            if not session_audio_dir.exists() or not session_pose_dir.exists():
-                print(f"Warning: {session_name} not found, skipping...")
-                continue
-                
-            for wav_file in session_audio_dir.glob("*.wav"):
-                pose_file = session_pose_dir / (wav_file.stem + ".json")
-                if pose_file.exists():
-                    self.samples.append((wav_file, pose_file, session_name))
-        
-        print(f"Loaded {len(self.samples)} audio-pose pairs from sessions {session_ids}")
-    
-    def __len__(self):
-        return len(self.samples)
-    
-    def __getitem__(self, idx):
-        wav_file, pose_file, session_name = self.samples[idx]
-        
-        # Read audio
-        audio_data, sr = torchaudio.load(wav_file)
-        
-        # Handle mono vs multi-channel audio
-        if len(audio_data.shape) == 1:
-            audio_data = audio_data[:, np.newaxis]
-        
-        N_channels, N_taps = audio_data.shape
-        t_max = N_taps / sr
-        N_frames = int(round(t_max / self.dT_head_tracking))
-        N_samples_per_frame = int(sr * self.dT_head_tracking)
-        
-        # Reshape audio to (frames, channels, samples_per_frame)
-        audio_tensor = torch.stack([
-            audio_data[:, i * N_samples_per_frame:(i+1)*N_samples_per_frame] for i in range(N_frames)
-        ], dim=0)
-        
-        # Read pose data
-        with open(pose_file, 'r') as f:
-            pose_data = json.load(f)
+    def __init__(self, cache_dir):
+        self.cache_dir = Path(cache_dir)
+        self.files = torch.load(self.cache_dir / "index.pt")
 
-        pose_tensor = torch.zeros((len(pose_data), 7))
-        for i, frame in enumerate(pose_data):
-            assert i == frame['Frame_Number'] - 1
-            for participant in frame['Participants']:
-                if participant['Participant_ID'] != 2:
-                    continue
-                else:
-                    pose_tensor[i, 0] = participant["Position_X"]
-                    pose_tensor[i, 1] = participant["Position_Y"]
-                    pose_tensor[i, 2] = participant["Position_Z"]
-                    pose_tensor[i, 3] = participant["Quaternion_X"]
-                    pose_tensor[i, 4] = participant["Quaternion_Y"]
-                    pose_tensor[i, 5] = participant["Quaternion_Z"]
-                    pose_tensor[i, 6] = participant["Quaternion_W"]
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        path = self.cache_dir / self.files[idx]
+        data = torch.load(path, map_location="cpu")
+        return data["audio"], data["pose"]
+
+
+# class AudioPoseDataset(Dataset):
+#     """Dataset for audio-pose pairs from EasyCom dataset."""
+    
+#     def __init__(self, audio_dir, pose_dir, session_ids, participant_id=2):
+#         """
+#         Args:
+#             audio_dir: Path to Glasses_Microphone_Array_Audio directory
+#             pose_dir: Path to Tracked_Poses directory
+#             session_ids: List of session IDs to include (e.g., [1, 2, ..., 10])
+#             participant_id: Participant ID to extract pose for (default: 2)
+#         """
+#         self.audio_dir = Path(audio_dir)
+#         self.pose_dir = Path(pose_dir)
+#         self.session_ids = session_ids
+#         self.participant_id = participant_id
         
-        # Ensure frames match
-        min_frames = min(audio_tensor.shape[0], pose_tensor.shape[0])
-        audio_tensor = audio_tensor[:min_frames, :]
-        pose_tensor = pose_tensor[:min_frames, :]
-       
-        return audio_tensor, pose_tensor
+#         self.fs_head_tracking = get_head_tracking_fs()
+#         self.dT_head_tracking = 1.0 / self.fs_head_tracking
+        
+#         # Collect all audio-pose pairs
+#         self.samples = []
+#         for session_id in session_ids:
+#             session_name = f"Session_{session_id}"
+#             session_audio_dir = self.audio_dir / session_name
+#             session_pose_dir = self.pose_dir / session_name
+            
+#             if not session_audio_dir.exists() or not session_pose_dir.exists():
+#                 print(f"Warning: {session_name} not found, skipping...")
+#                 continue
+                
+#             for wav_file in session_audio_dir.glob("*.wav"):
+#                 pose_file = session_pose_dir / (wav_file.stem + ".json")
+#                 if pose_file.exists():
+#                     self.samples.append((wav_file, pose_file, session_name))
+        
+#         print(f"Loaded {len(self.samples)} audio-pose pairs from sessions {session_ids}")
+    
+#     def __len__(self):
+#         return len(self.samples)
+    
+#     def __getitem__(self, idx):
+#         wav_file, pose_file, session_name = self.samples[idx]
+        
+
+#         return audio_tensor, pose_tensor
 
 
 class AudioPoseModel(nn.Module):
@@ -242,16 +211,13 @@ def collate_fn(batch):
     return audio_batch, pose_batch
 
 
-def train_epoch(model, dataloader, config, criterion, device):
+def train_epoch(model, dataloader, criterion, optimizer, scheduler, device):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
-    num_batches = 0
-    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
-    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=config.num_epochs)
-
+    num_batches = 0 
     
-    for audio, pose in dataloader:
+    for audio, pose in tqdm(dataloader):
         audio = audio.to(device)
         pose = pose.to(device)
         
@@ -370,24 +336,44 @@ def run_experiment(config: TrainConfig,
         json.dump(config.to_dict(), f, indent=2)
 
     # Dataloaders
-    train_loader = DataLoader(train_dataset, batch_size=config.batch_size,
-                              shuffle=True, collate_fn=collate_fn)
-    dev_loader = DataLoader(dev_dataset, batch_size=config.batch_size,
-                            shuffle=False, collate_fn=collate_fn)
-    test_loader = DataLoader(test_dataset, batch_size=config.batch_size,
-                             shuffle=False, collate_fn=collate_fn)
+    train_loader = DataLoader(
+        train_dataset, 
+        batch_size=config.batch_size,
+        shuffle=True, 
+        collate_fn=collate_fn,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True)
+    dev_loader = DataLoader(
+        dev_dataset, 
+        batch_size=config.batch_size,
+        shuffle=False, 
+        collate_fn=collate_fn,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True)
+    test_loader = DataLoader(
+        test_dataset, 
+        batch_size=config.batch_size,
+        shuffle=False, 
+        collate_fn=collate_fn,
+        num_workers=4,
+        pin_memory=True,
+        persistent_workers=True)
 
     # Device
     device = torch.device("cpu")
     if torch.cuda.is_available():
         device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
+    # elif torch.backends.mps.is_available():
+    #     device = torch.device("mps")
     print(f"[{run_dir.name}] Running on device {device}")
 
     # Model / optimizer / loss
     model = AudioPoseModel(config=config).to(device)
     criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
+    scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=config.num_epochs)
 
     # wandb (optional)
     if WANDB_AVAILABLE:
@@ -409,7 +395,7 @@ def run_experiment(config: TrainConfig,
     print(f"[{run_dir.name}] Starting training with config:\n{config}")
 
     for epoch in tqdm(range(config.num_epochs), desc=f"{run_dir.name}"):
-        train_loss = train_epoch(model, train_loader, config, criterion, device)
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, scheduler, device)
         dev_metrics = evaluate(model, dev_loader, criterion, device)
 
         train_losses.append(train_loss)
@@ -471,23 +457,20 @@ def run_experiment(config: TrainConfig,
 def main():
     # Configuration
     data_root = Path("data/Main")
-    audio_dir = data_root / "Glasses_Microphone_Array_Audio"
-    pose_dir = data_root / "Tracked_Poses"
-    
-    # Train/Dev/Test splits
-    train_sessions = list(range(1, 11))  # Sessions 1-10
-    dev_sessions = [11]                  # Session 11
-    test_sessions = [12]                  # Session 12
+    train_dir = data_root / Path("Train")
+    dev_dir = data_root / Path("Dev")
+    test_dir = data_root / Path("Test")
     
     # Create datasets
     print("Loading datasets...")
-    train_dataset = AudioPoseDataset(audio_dir, pose_dir, train_sessions, participant_id=2)
-    dev_dataset = AudioPoseDataset(audio_dir, pose_dir, dev_sessions, participant_id=2)
-    test_dataset = AudioPoseDataset(audio_dir, pose_dir, test_sessions, participant_id=2)
+    train_dataset = AudioPoseDataset(train_dir)
+    dev_dataset = AudioPoseDataset(dev_dir)
+    test_dataset = AudioPoseDataset(test_dir)
     
     base_config = {
         "batch_size": 4,
-        "hidden_dim": 16,
+        "learning_rate": 2.5e-4,
+        # "hidden_dim": 16,
         "num_layers": 1,
         "dropout": 0.1,
         "num_epochs": 20,
@@ -496,17 +479,15 @@ def main():
         "head": LinearHead,
     }
 
-    # 🔥 Learning rate sweep
-    learning_rates = [1e-4, 2e-4, 3e-4, 5e-4]
+    hidden_dims = [8, 16, 32, 64, 128]
 
     runs_root = Path("runs")
-    for lr in learning_rates:
+    for dim in hidden_dims:
         cfg_dict = dict(base_config)
-        cfg_dict["learning_rate"] = lr
+        cfg_dict["hidden_dim"] = dim 
         config = TrainConfig(cfg_dict)
 
-        # Folder name like: runs/lr_1e-04, lr_3e-04, lr_1e-03
-        run_name = f"lr_{lr:.0e}+annealing"
+        run_name = f"hidden_dim/dim_{dim}"
         run_dir = runs_root / run_name
 
         run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
