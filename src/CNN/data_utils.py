@@ -87,8 +87,15 @@ class EasyComDataLoader:
         trans_file = self.speech_transcriptions_dir / session_name / (wav_file.stem + ".json")
         if not trans_file.exists():
             return ValueError(f"Corresponding transcript file {trans_file} does not exist for session #{session_id} and wave file {wav_file}!")
-        with open(trans_file, 'r') as f:
-            return json.load(f)
+        # Try reading with utf-8 first, fallback to latin-1 if that fails
+        # This handles files created on Windows with different encodings
+        try:
+            with open(trans_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except UnicodeDecodeError:
+            # Fallback to latin-1 (Windows-1252 compatible) for files with special characters
+            with open(trans_file, 'r', encoding='latin-1') as f:
+                return json.load(f)
 
     def extract_wearer_6dof(self, poses_data: List[dict]) -> Optional[np.ndarray]:
         # (position + rotation) for glasses wearer
