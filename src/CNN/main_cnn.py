@@ -12,7 +12,13 @@ Created on Nov 20, 2025
         C:\Python311_PyTorch\python.exe -m src.CNN.main_cnn
 
 
-@author: Sebastian Prepelita, based on file from Prerana Rane
+    # On cluster:
+    source /mnt/audio/prepelit/ML_training/python_pythorch_venv/bin/activate
+    cd /mnt/audio/prepelit/ML_training/CS230-Final-Project-sebastian
+    python -m src.CNN.main_cnn
+    deactivate
+
+@author: Sebastian Prepelita, based on baseline file from Prerana Rane
 '''
 import time, datetime
 import torch
@@ -23,6 +29,7 @@ import logging
 from enum import Enum
 from typing import Optional
 from concurrent.futures import ProcessPoolExecutor, as_completed
+import multiprocessing
 
 import sys
 
@@ -399,12 +406,20 @@ def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model
     model_params_list : list[cnn_model.CNNModelParams]
         List of model parameters to train
     """
-    #
     logger = setup_logger(
         log_filename=main_log_filename,
         mode=log_mode,
         level=logging.DEBUG
     )
+    # Set multiprocessing start method to 'spawn' for CUDA compatibility
+    # This is required for CUDA on Linux/Unix systems. Windows uses 'spawn' by default.
+    try:
+        multiprocessing.set_start_method('spawn', force=True)
+        logger.info("Set multiprocessing start method to 'spawn' for CUDA compatibility")
+    except RuntimeError as e:
+        logger.error(f"Failed to set multiprocessing start method to 'spawn': {str(e)}")
+        logger.error("This may cause issues with CUDA on Linux systems")
+    
     model_params_list = history_io.load_model_configs_from_json(model_list_file, logger=logger)
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
@@ -538,7 +553,7 @@ if __name__ == '__main__':
     launch_parallel_training(
                             main_log_filename = 'MAIN_PARALLEL_TRAINING',
                             model_list_file = 'model_configs.json',
-                            log_mode = LogMode.FILE_ONLY, # Change to FILE_ONLY or TERMINAL_ONLY as needed
+                            log_mode = LogMode.BOTH, # Change to BOTH, FILE_ONLY or TERMINAL_ONLY as needed
                             )
 
     # ========================================================================
