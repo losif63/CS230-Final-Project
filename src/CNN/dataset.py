@@ -1,11 +1,12 @@
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 import numpy as np
 import torch
 import h5py
 import re
 from torch.utils.data import Dataset
 from tqdm.auto import tqdm
+import logging
 
 import time, datetime
 
@@ -15,15 +16,16 @@ from src.CNN import data_utils
 import src.baseline.config
 
 class AudioPoseDataset(Dataset):
-    def __init__(self, 
-                 data_root: str, 
+    def __init__(self,
+                 data_root: str,
                  session_ids: List[int],
                  use_channels: List[int] = [0, 1, 2, 3, 4, 5],
                  filter_silence: bool = True,
                  fs_audio: int = 48000,
                  fs_head_tracking: float = 20.0,
                  array_wearer_id: int = 2,
-                 cache_filename: str = None):
+                 cache_filename: str = None,
+                 logger: Optional[logging.Logger] = None):
         """
         Inputs:
             data_root: Root directory of EasyCom dataset
@@ -33,10 +35,12 @@ class AudioPoseDataset(Dataset):
             fs_audio: Audio sampling frequency
             fs_head_tracking: Head tracking sampling frequency
             array_wearer_id: Participant ID of glasses wearer
-            cache_filename: String - if not None, the dataset is cached to/from an .hdf5 file. 
+            cache_filename: String - if not None, the dataset is cached to/from an .hdf5 file.
+            logger: Logger instance for debug-level logging
         """
         self.use_channels = use_channels
         self.filter_silence = filter_silence
+        self.logger = logger
         self.loader = data_utils.EasyComDataLoader(
             data_root=data_root,
             fs_audio=fs_audio,
@@ -48,7 +52,12 @@ class AudioPoseDataset(Dataset):
         self.cache_filename = Path(cache_filename).stem
 
         self._load_cached_dataset()
-        print(f" Built dataset with {len(self.all_audio_frames)} samples")
+
+        dataset_built_msg = f"Built dataset with {len(self.all_audio_frames)} samples"
+        if self.logger:
+            self.logger.debug(dataset_built_msg)
+        else:
+            print(f" {dataset_built_msg}")
 
     def _load_cached_dataset(self):
         # Check to see if data is cached:
@@ -71,7 +80,7 @@ class AudioPoseDataset(Dataset):
                     if match:
                         num = int(match.group(1))
                     else:
-                        raise ValueError(f"Unexpected group type: expected session_\d+, but got {group_string}")
+                        raise ValueError(fr"Unexpected group type: expected session_\d+, but got {group_string}")
                     session_ids.append(num)
                 if set(session_ids) != set(self.session_ids):
                     raise ValueError(f"The cached database contains different sessions: {session_ids} . You requested sessions: {self.session_ids}")
@@ -85,7 +94,7 @@ class AudioPoseDataset(Dataset):
         else:
             print(f" Cached file missing {fn_}! Building dataset manually!")
             audio_arrays_sessions, wearer_pose_arrays_sessions, session_ids = self._build_dataset()
-            
+
             # dump data:
             with h5py.File(fn_, "w") as f:
                 f.create_dataset("filter_silence", data = self.filter_silence)
@@ -97,13 +106,13 @@ class AudioPoseDataset(Dataset):
         self.all_audio_frames = np.concatenate(audio_arrays_sessions, axis = 0)
         self.all_wearer_pose_6dof = np.concatenate(wearer_pose_arrays_sessions, axis = 0)
         assert(self.all_audio_frames.shape[0] == self.all_wearer_pose_6dof.shape[0])
-        
+
         print(f"   Loaded audio data: {self.all_audio_frames.shape}.")
         print(f"   Loaded wearer data: {self.all_wearer_pose_6dof.shape}.")
-    
+
     def _build_dataset(self):
         samples_per_frame = int(self.loader.FS_AUDIO / self.loader.FS_HEAD_TRACKING)
-        
+
         audio_arrays_sessions = []
         wearer_pose_arrays_sessions = []
         session_ids = []
@@ -115,22 +124,22 @@ class AudioPoseDataset(Dataset):
                 continue
 
             wav_files = self.loader.get_wav_files(session_dir)
-            
+
             audio_frames_session_list = []
             wearer_pose_6dof_session_list = []
             for wave_file_idx, wav_file in enumerate(wav_files):
                 try:
                     audio, _ = self.loader.load_audio(wav_file)
-                    
+
                     if audio is None:
                         raise ValueError(f"Got no audio for file {wav_file}!")
-                    
+
                     # Remove DC global:
                     audio_DC = np.average(audio, axis = 0)
                     audio -= audio_DC
-                    
+
                     n_samples, n_channels = audio.shape
-                    
+
                     if max(self.use_channels) >= n_channels:
                         raise ValueError(f"Requesting too many channels: {self.use_channels}. Audio has {n_channels} channels only!")
 
@@ -141,8 +150,14 @@ class AudioPoseDataset(Dataset):
                         raise ValueError(f"Poses loading error!!")
 
                     wearer_pose_6dof = self.loader.extract_wearer_6dof(poses_data)
-                    
+                    if wearer_pose_6dof is None:
+                        raise ValueError("Wearer pose extraction returned None!")
+
                     n_frames = len(wearer_pose_6dof)
+
+                    # Initialize defaults to avoid possibly-unbound variables
+                    speech_lookup = {}
+                    external_participant_ids = []
 
                     if self.filter_silence:
                         transcription_data = self.loader.load_speech_transcriptions(
@@ -168,18 +183,18 @@ class AudioPoseDataset(Dataset):
                                 )
                             if not is_active:
                                 continue
-                        
+
                         if np.linalg.norm(wearer_pose_6dof[frame_idx]) < 0.1:
                             raise ValueError("To small norm?!")
 
                         # Cache audio frame
                         audio_frame = audio[start_sample:end_sample, self.use_channels].T
                         audio_frame = audio_frame.astype(np.float32)
-                        
+
                         # Remove DC (?):
                         # audio_frame_DC = np.average(audio_frame, axis = 1)
                         #audio_frame -= audio_frame_DC[:,None]
-                                                
+
                         # We'll use self.all_audio_frames and self.all_wearer_pose_6dof as cached data instead
                         # self.samples.append({
                         #     'audio_frame': audio_frame,  # (n_channels, 2400)
@@ -188,13 +203,13 @@ class AudioPoseDataset(Dataset):
                         audio_frames_session_list.append(audio_frame[None, :, :]) # n_frames x (n_channels, 2400)
                         wp_ = wearer_pose_6dof[frame_idx].astype(np.float32)
                         wearer_pose_6dof_session_list.append(wp_[None, :])  # n_frames x (7)
-                
+
                 except Exception as e:
                     raise ValueError(f"\n Error processing {wav_file.name}: {e}")
-            
+
             audio_frames_session_array = np.concatenate(audio_frames_session_list, axis = 0)
             wearer_pose_session_array = np.concatenate(wearer_pose_6dof_session_list, axis = 0)
-            
+
             # Build big list with all sessions:
             audio_arrays_sessions.append(audio_frames_session_array)
             wearer_pose_arrays_sessions.append(wearer_pose_session_array)
@@ -210,17 +225,34 @@ class AudioPoseDataset(Dataset):
         #sample = self.samples[idx]
         #audio_tensor = torch.from_numpy(sample['audio_frame'])
         #pose_tensor = torch.from_numpy(sample['pose_6dof'])
-        
+
         audio_tensor = torch.from_numpy(self.all_audio_frames[idx, :, :])
         pose_tensor = torch.from_numpy(self.all_wearer_pose_6dof[idx, :])
 
         return audio_tensor, pose_tensor
 
 
-def create_dataloaders(config: src.baseline.config.Config):
-    #Create train, validation, and test dataloaders
-    
+def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logging.Logger] = None):
+    """
+    Create train, validation, and test dataloaders.
+
+    Parameters
+    ----------
+    config : Config
+        Configuration object with dataset parameters
+    logger : logging.Logger, optional
+        Logger instance for debug-level logging
+
+    Returns
+    -------
+    tuple
+        (train_loader, val_loader, test_loader)
+    """
     from torch.utils.data import DataLoader
+
+    if logger:
+        logger.debug("   (a) Creating training dataset...")
+
     start = time.perf_counter()
     train_dataset = AudioPoseDataset(
         data_root=str(config.DATA_ROOT),
@@ -230,10 +262,17 @@ def create_dataloaders(config: src.baseline.config.Config):
         fs_audio=config.FS_AUDIO,
         fs_head_tracking=config.FS_HEAD_TRACKING,
         array_wearer_id=config.ARRAY_WEARER_ID,
-        cache_filename=config.TRAIN_CACHE_FN
+        cache_filename=config.TRAIN_CACHE_FN,
+        logger=logger
     )
     end = time.perf_counter()
-    print(f"   Training loading took {datetime.timedelta(seconds=end-start)}")
+
+    train_time_msg = f"       Training dataset loading took {datetime.timedelta(seconds=end-start)}"
+    if logger:
+        logger.debug(train_time_msg)
+
+    if logger:
+        logger.debug("   (b) Creating validation dataset...")
 
     val_dataset = AudioPoseDataset(
         data_root=str(config.DATA_ROOT),
@@ -243,8 +282,12 @@ def create_dataloaders(config: src.baseline.config.Config):
         fs_audio=config.FS_AUDIO,
         fs_head_tracking=config.FS_HEAD_TRACKING,
         array_wearer_id=config.ARRAY_WEARER_ID,
-        cache_filename=config.VAL_CACHE_FN
+        cache_filename=config.VAL_CACHE_FN,
+        logger=logger
     )
+
+    if logger:
+        logger.debug("   (c) Creating test dataset...")
 
     test_dataset = AudioPoseDataset(
         data_root=str(config.DATA_ROOT),
@@ -254,13 +297,22 @@ def create_dataloaders(config: src.baseline.config.Config):
         fs_audio=config.FS_AUDIO,
         fs_head_tracking=config.FS_HEAD_TRACKING,
         array_wearer_id=config.ARRAY_WEARER_ID,
-        cache_filename=config.TEST_CACHE_FN
+        cache_filename=config.TEST_CACHE_FN,
+        logger=logger
     )
 
-    print(f"\nDataset sizes:")
-    print(f"  Train: {len(train_dataset)} samples")
-    print(f"  Val: {len(val_dataset)} samples")
-    print(f"  Test: {len(test_dataset)} samples")
+    dataset_sizes_msg = (
+        f"Dataset sizes:\n"
+        f"\t\t\t  Train: {len(train_dataset)} samples\n"
+        f"\t\t\t  Val: {len(val_dataset)} samples\n"
+        f"\t\t\t  Test: {len(test_dataset)} samples"
+    )
+
+    if logger:
+        logger.debug(dataset_sizes_msg)
+
+    if logger:
+        logger.debug("   (d) Creating dataloaders...")
 
     # Create dataloaders
     train_loader = DataLoader(
@@ -286,5 +338,8 @@ def create_dataloaders(config: src.baseline.config.Config):
         num_workers=config.NUM_WORKERS,
         pin_memory=True if torch.cuda.is_available() else False
     )
+
+    if logger:
+        logger.debug("      Dataloaders created successfully. Returning...")
 
     return train_loader, val_loader, test_loader
