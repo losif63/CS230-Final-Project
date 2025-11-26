@@ -2,50 +2,52 @@ import torch
 from pathlib import Path
 
 
-class Config:    
-    DATA_ROOT = Path(r"D:\Temp_S230_Database\Main") 
+class Config:
+    #DATA_ROOT = Path(r"D:\Temp_S230_Database\Main") # Local machine
+    DATA_ROOT = Path(r"C:\easycom_dataset\Main") # Meta desktop
     CHECKPOINT_DIR = Path("./checkpoints")
     TRAINING_RESUTLS_DIR = Path("./training_results")
+    TESTING_RESUTLS_DIR = Path("./testing_results")
     FS_AUDIO = 48000
     FS_HEAD_TRACKING = 20.0
     DT_HEAD_TRACKING = 1.0 / FS_HEAD_TRACKING
     ARRAY_WEARER_ID = 2
     SAMPLES_PER_FRAME = int(FS_AUDIO / FS_HEAD_TRACKING)  # 2400
-    
+
     # Session splits
     TRAIN_SESSIONS = list(range(1, 3))  # Sessions 1-10
     VAL_SESSIONS = [11]                   # Session 11
     TEST_SESSIONS = [12]                  # Session 12
-    
+
     # Caching:
     TRAIN_CACHE_FN = "easycom_train_data_cache"
     VAL_CACHE_FN = "easycom_validation_data_cache"
     TEST_CACHE_FN = "easycom_test_data_cache"
-    
+
     # Audio channels
     USE_CHANNELS = [0, 1, 2, 3, 4, 5]  # All 6 microphones
     FILTER_SILENCE = True
-    
+
     # Model architecture
     N_CHANNELS = len(USE_CHANNELS)
     HIDDEN_DIMS = [256, 128, 64] #can be updated
     OUTPUT_DIM = 7  # [x, y, z, qx, qy, qz, qw]
     DROPOUT = 0.3
-    
+
     # Training parameters
     BATCH_SIZE = 32
     NUM_EPOCHS = 10
     LEARNING_RATE = 1e-4
     WEIGHT_DECAY = 1e-5
     NUM_WORKERS = 0 # For windows...
-    
-    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
+
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     SEED = 42
-    
+
     @classmethod
     def set_data_root(cls, path: str):
         cls.DATA_ROOT = Path(path)
-    
+
     @classmethod
     def get_paths(cls):
         return {
@@ -55,7 +57,7 @@ class Config:
             'speech_transcriptions': cls.DATA_ROOT / "Speech_Transcriptions",
             'checkpoint_dir': cls.CHECKPOINT_DIR
         }
-    
+
     @classmethod
     def print_config(cls):
         print("\n" + "="*60)
