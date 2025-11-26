@@ -1,0 +1,60 @@
+{
+  "models": [
+    {
+      "model_name": "tiny_test_model",
+      "n_channels": 6,
+      "samples_per_frame": 2400,
+      "cnn_num_filter_list": [4, 4, 4],
+      "cnn_filter_size_list": [10, 8, 4],
+      "cnn_stride_list": [1, 2, 2],
+      "cnn_padding_list": [0, 0, 0],
+      "max_pool_filter_size_list": [2, 4, 6],
+      "max_pool_stride_size_list": [2, 4, 6],
+      "FC_hidden_dims": [10],
+      "output_dim": 7,
+      "dropout": 0.3
+    },
+    {
+      "model_name": "small_model",
+      "n_channels": 6,
+      "samples_per_frame": 2400,
+      "cnn_num_filter_list": [16, 32, 64],
+      "cnn_filter_size_list": [64, 32, 16],
+      "cnn_stride_list": [1, 1, 1],
+      "cnn_padding_list": [0, 0, 0],
+      "max_pool_filter_size_list": [2, 2, 2],
+      "max_pool_stride_size_list": [2, 2, 2],
+      "FC_hidden_dims": [128, 64],
+      "output_dim": 7,
+      "dropout": 0.2
+    },
+    {
+      "model_name": "medium_model",
+      "n_channels": 6,
+      "samples_per_frame": 2400,
+      "cnn_num_filter_list": [32, 64, 128, 128],
+      "cnn_filter_size_list": [128, 64, 32, 16],
+      "cnn_stride_list": [1, 1, 1, 1],
+      "cnn_padding_list": [0, 0, 0, 0],
+      "max_pool_filter_size_list": [0, 2, 2, 4],
+      "max_pool_stride_size_list": [2, 2, 2, 4],
+      "FC_hidden_dims": [256, 128, 64],
+      "output_dim": 7,
+      "dropout": 0.3
+    },
+    {
+      "model_name": "large_model",
+      "n_channels": 6,
+      "samples_per_frame": 2400,
+      "cnn_num_filter_list": [64, 128, 256, 256],
+      "cnn_filter_size_list": [128, 128, 64, 8],
+      "cnn_stride_list": [1, 1, 1, 1],
+      "cnn_padding_list": [0, 0, 0, 0],
+      "max_pool_filter_size_list": [0, 2, 3, 4],
+      "max_pool_stride_size_list": [2, 2, 3, 4],
+      "FC_hidden_dims": [512, 256, 128],
+      "output_dim": 7,
+      "dropout": 0.3
+    }
+  ]
+}
