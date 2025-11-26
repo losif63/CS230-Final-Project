@@ -41,6 +41,18 @@ class Config:
     WEIGHT_DECAY = 1e-5
     NUM_WORKERS = 0 # For windows...
 
+    # Parallel training parameters
+    TRAININGS_PER_GPU = 2  # Number of parallel trainings per GPU (e.g., 2 = train 2 models per GPU simultaneously)
+
+    # GPU assignment strategy for parallel training:
+    # - "round_robin": Distributes models evenly across all GPUs (e.g., Model 0→GPU0, Model 1→GPU1, Model 2→GPU2, Model 3→GPU0, ...)
+    #                  Best for balanced load distribution and when models have varying training times.
+    #                  All GPUs stay busy throughout the entire training process.
+    # - "sequential": Assigns models in blocks to GPUs (e.g., Models 0-1→GPU0, Models 2-3→GPU1, Models 4-5→GPU2, ...)
+    #                 Best when you want GPUs to finish completely and become available for other work.
+    #                 Easier to monitor progress by GPU and better for batch-based workflows.
+    GPU_ASSIGNMENT_STRATEGY = "round_robin"  # Options: "round_robin" or "sequential"
+
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     SEED = 42
 
