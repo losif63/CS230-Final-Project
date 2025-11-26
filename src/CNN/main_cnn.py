@@ -22,6 +22,7 @@ import random
 import logging
 from enum import Enum
 from typing import Optional
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 import sys
 
@@ -195,6 +196,64 @@ def getPlottingFileName(training_results_dir, cnnModel):
     os.makedirs(training_results_dir, exist_ok=True)
     return training_results_dir / f'{cnnModel.getModelName()}__training_results.png'
 
+def train_single_model_wrapper(args_tuple):
+    """
+    Wrapper function for parallel training. Sets up a separate logger for each process.
+
+    Parameters
+    ----------
+    args_tuple : tuple
+        Tuple of (model_params, device_str, model_index, total_models, log_mode)
+
+    Returns
+    -------
+    dict
+        Dictionary with training results and status
+    """
+    model_params, device_str, model_index, total_models, log_mode = args_tuple
+
+    # Create a unique logger for this model with the specified log_mode
+    log_filename = f"cnn_training__{model_params.model_name}"
+    model_logger = setup_logger(
+        log_filename=log_filename,
+        mode=log_mode,
+        level=logging.DEBUG
+    )
+
+    try:
+        model_logger.info(f"\n{'='*80}")
+        model_logger.info(f"Training Model {model_index + 1}/{total_models}: {model_params.model_name}")
+        model_logger.info(f"Assigned to device: {device_str}")
+        model_logger.info(f"{'='*80}\n")
+
+        # Train the model
+        train_test_model(
+            model_params=model_params,
+            specific_torch_device=device_str,
+            logger=model_logger
+        )
+
+        model_logger.info(f"\n{'='*80}")
+        model_logger.info(f"Successfully completed training for: {model_params.model_name}")
+        model_logger.info(f"{'='*80}\n")
+
+        return {
+            'model_name': model_params.model_name,
+            'status': 'success',
+            'device': device_str
+        }
+
+    except Exception as e:
+        error_msg = f"Error training model '{model_params.model_name}': {str(e)}"
+        model_logger.error(error_msg, exc_info=True)
+        return {
+            'model_name': model_params.model_name,
+            'status': 'failed',
+            'error': str(e),
+            'device': device_str
+        }
+
+
 def train_test_model(
     model_params: cnn_model.CNNModelParams,
     specific_torch_device = None,
@@ -331,47 +390,156 @@ def train_test_model(
         logger=logger
     )
 
+def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model_list_file: str = 'model_configs.json', log_mode = LogMode.BOTH):# Change to FILE_ONLY or TERMINAL_ONLY as needed
+    """
+    Launch parallel training of multiple models on available GPUs.
+
+    Parameters
+    ----------
+    model_params_list : list[cnn_model.CNNModelParams]
+        List of model parameters to train
+    """
+    #
+    logger = setup_logger(
+        log_filename=main_log_filename,
+        mode=log_mode,
+        level=logging.DEBUG
+    )
+    model_params_list = history_io.load_model_configs_from_json(model_list_file, logger=logger)
+    # Get available devices
+    available_GPU_devices = get_available_devices(False, logger=logger)
+
+    if len(available_GPU_devices) == 0:
+        error_msg = "No available GPU devices found. Please check"
+    # Calculate maximum parallel models based on GPUs and trainings per GPU
+    trainings_per_gpu = config.Config.TRAININGS_PER_GPU
+    assignment_strategy = config.Config.GPU_ASSIGNMENT_STRATEGY
+    max_parallel_models = len(available_GPU_devices) * trainings_per_gpu
+
+    logger.info(f"\n{'='*80}\n Starting PARALLEL training:")
+    logger.info(f"  - Total models to train: {len(model_params_list)}")
+    logger.info(f"  - Available GPUs: {len(available_GPU_devices)}")
+    logger.info(f"  - Trainings per GPU: {trainings_per_gpu}")
+    logger.info(f"  - GPU assignment strategy: {assignment_strategy}")
+    logger.info(f"  - Max parallel models: {max_parallel_models}")
+    logger.info(f"{'='*80}\n")
+
+    # Prepare arguments for parallel training with selected strategy
+    training_args = []
+
+    if assignment_strategy == "round_robin":
+        # Round-robin: Distribute models evenly across GPUs; All GPUs stay occupied until all models complete
+        # Good for heterogeneous model sizes
+        # Example with 3 GPUs: Model 0→GPU0, Model 1→GPU1, Model 2→GPU2, Model 3→GPU0, ...
+        for idx, model_params in enumerate(model_params_list):
+            gpu_index = idx % len(available_GPU_devices)
+            device_str = available_GPU_devices[gpu_index]
+            training_args.append((model_params, device_str, idx, len(model_params_list), log_mode))
+
+    elif assignment_strategy == "sequential":
+        # Sequential: Assign models in blocks to GPUs; Less balanced if model training times vary significantly
+        # Example with 3 GPUs and 2 trainings/GPU: Models 0-1→GPU0, Models 2-3→GPU1, Models 4-5→GPU2
+        for idx, model_params in enumerate(model_params_list):
+            gpu_index = idx // trainings_per_gpu
+            # Wrap around if we have more models than total capacity
+            gpu_index = gpu_index % len(available_GPU_devices)
+            device_str = available_GPU_devices[gpu_index]
+            training_args.append((model_params, device_str, idx, len(model_params_list), log_mode))
+
+    else:
+        error_msg = f"Invalid GPU_ASSIGNMENT_STRATEGY: '{assignment_strategy}'. Must be 'round_robin' or 'sequential'."
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    # Log GPU assignment plan
+    logger.info("GPU Assignment Plan:")
+    for gpu_idx, device_str in enumerate(available_GPU_devices):
+        assigned_models = [f"{args[0].model_name}" for args in training_args if args[1] == device_str]
+        logger.info(f"  {device_str}: {len(assigned_models)} models - {assigned_models}")
+    logger.info("")
+
+    # Train models in parallel using ProcessPoolExecutor
+    results = []
+    with ProcessPoolExecutor(max_workers=max_parallel_models) as executor:
+        # Submit all training jobs
+        future_to_model = {
+            executor.submit(train_single_model_wrapper, args): args[0].model_name
+            for args in training_args
+        }
+
+        # Process results as they complete
+        for future in as_completed(future_to_model):
+            model_name = future_to_model[future]
+            try:
+                result = future.result()
+                results.append(result)
+
+                if result['status'] == 'success':
+                    logger.info(f"✓ Completed: {result['model_name']} on {result['device']}")
+                else:
+                    logger.error(f"✗ Failed: {result['model_name']} - {result.get('error', 'Unknown error')}")
+            except Exception as e:
+                logger.error(f"✗ Exception during training of {model_name}: {str(e)}", exc_info=True)
+                results.append({
+                    'model_name': model_name,
+                    'status': 'exception',
+                    'error': str(e)
+                })
+
+    # Summary
+    logger.info(f"\n{'='*80}\n Training Summary:\n {'='*80}")
+    successful = sum(1 for r in results if r['status'] == 'success')
+    failed = len(results) - successful
+    logger.info(f"  Total models: {len(results)}")
+    logger.info(f"  Successful: {successful}")
+    logger.info(f"  Failed: {failed}")
+
+    if failed > 0:
+        logger.info("\nFailed models:")
+        for result in results:
+            if result['status'] != 'success':
+                logger.info(f"  - {result['model_name']}: {result.get('error', 'Unknown error')}")
+
+    logger.info(f"{'='*80}\n")
+
 
 if __name__ == '__main__':
-    print("Main CNN starting...")
-
     # ========================================================================
-    # Set up logger - Configure output mode here
+    # Option 1: Sequential Training (one model at a time)
     # ========================================================================
     # LogMode.FILE_ONLY: Only write to log file
     # LogMode.TERMINAL_ONLY: Only write to terminal (like print)
     # LogMode.BOTH: Write to both log file and terminal (default)
-
-    logger = setup_logger(
-        log_filename="cnn_training",
-        mode=LogMode.BOTH,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
-        level=logging.DEBUG
-    )
-
-    logger.info("Main CNN starting...")
-
-    # Get available devices
-    available_GPU_devices = get_available_devices(False, logger=logger)
-
-    # You can select a specific device like this:
-    # selected_device = available_devices[1]  # Select first GPU
-    # config.Config.DEVICE = torch.device(selected_device)
-
+    # logger = setup_logger(
+    #     log_filename="cnn_training",
+    #     mode=LogMode.BOTH,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
+    #     level=logging.DEBUG
+    # )
+    # logger.info("Main CNN starting...")
+    # # Get available devices
+    # available_GPU_devices = get_available_devices(False, logger=logger)
+    # Uncomment this section to train models sequentially
+    # model_params_list = history_io.load_model_configs_from_json('model_configs.json', logger=logger)
+    #
+    # for idx, model_params in enumerate(model_params_list):
+    #     msg_start = f"\n  {'='*80}\n" + f"  Training Model {idx + 1}/{len(model_params_list)}: {model_params.model_name}" +  "  Creating CNN model '{model_params.model_name}'\n" + f"  {'='*80}"
+    #     logger.info(msg_start)
+    #
+    #     try:
+    #         train_test_model(model_params, specific_torch_device = available_GPU_devices[0], logger=logger)
+    #     except Exception as e:
+    #         error_msg = f"Error training model '{model_params.model_name}': {str(e)}"
+    #         logger.error(error_msg, exc_info=True)
+    #         raise e
+    # logger.info("Main CNN ending...")
     # ========================================================================
-    # Option 1: Load models from JSON configuration file
+    # Option 1B: Parallel Training (train multiple models per GPU)
     # ========================================================================
-    model_params_list = history_io.load_model_configs_from_json('model_configs.json', logger=logger)
-
-    for idx, model_params in enumerate(model_params_list):
-        msg_start = f"\n  {'='*80}\n" + f"  Training Model {idx + 1}/{len(model_params_list)}: {model_params.model_name}" +  "  Creating CNN model '{model_params.model_name}'\n" + f"  {'='*80}"
-        logger.info(msg_start)
-
-        try:
-            train_test_model(model_params, specific_torch_device = available_GPU_devices[0], logger=logger)
-        except Exception as e:
-            error_msg = f"Error training model '{model_params.model_name}': {str(e)}"
-            logger.error(error_msg, exc_info=True)
-            raise e
+    launch_parallel_training(
+                            main_log_filename = 'MAIN_PARALLEL_TRAINING',
+                            model_list_file = 'model_configs.json',
+                            log_mode = LogMode.FILE_ONLY, # Change to FILE_ONLY or TERMINAL_ONLY as needed
+                            )
 
     # ========================================================================
     # Option 2: Train a single model defined here (current default)
@@ -392,5 +560,3 @@ if __name__ == '__main__':
     #     dropout=0.3
     # )
     # train_test_model(model_params, specific_torch_device = available_GPU_devices[0], logger=logger)
-
-    logger.info("Main CNN ending...")
