@@ -1,49 +1,110 @@
 '''
 Created on Nov 23, 2025
 
-@author: Prerana Rane with some changes by Sebastian Prepelita 
+@author: Prerana Rane with some changes by Sebastian Prepelita
 '''
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
-from typing import Dict, Any, Callable
+from typing import Dict, Any, Callable, Tuple, Optional
 import tqdm
 import os
+import logging
 
 from src.CNN import metrics as metrics_module
 
-def train_epoch(model: torch.nn.Module, 
-                dataloader: DataLoader, 
+
+class TqdmLoggingHandler(logging.Handler):
+    """Custom logging handler that works with tqdm progress bars."""
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.tqdm.write(msg)
+        except Exception:
+            self.handleError(record)
+
+
+def create_tqdm_callback(logger: Optional[logging.Logger], desc: str, total: int):
+    """
+    Create a tqdm callback that logs progress at 25% intervals.
+
+    Parameters
+    ----------
+    logger : logging.Logger, optional
+        Logger instance
+    desc : str
+        Description for the progress bar
+    total : int
+        Total number of items
+
+    Returns
+    -------
+    function
+        Callback function for tqdm
+    """
+    if logger is None:
+        return None
+
+    milestones = {int(total * 0.25), int(total * 0.5), int(total * 0.75), total}
+    logged_milestones = set()
+
+    def callback(pbar):
+        current = pbar.n
+        for milestone in milestones:
+            if current >= milestone and milestone not in logged_milestones:
+                percentage = (milestone / total) * 100
+                logger.info(f"{desc}: {percentage:.0f}% complete ({milestone}/{total})")
+                logged_milestones.add(milestone)
+
+    return callback
+
+def train_epoch(epoch: int,
+                model: torch.nn.Module,
+                dataloader: DataLoader,
                 lossFunction: Callable,
-                optimizer: torch.optim.Optimizer, 
-                device: torch.device) -> float:
+                optimizer: torch.optim.Optimizer,
+                device: torch.device,
+                logger: Optional[logging.Logger] = None) -> float:
     model.train() # No runtime overhead
     total_loss = 0.0
     num_batches = 0
     pbar = tqdm.tqdm(dataloader, desc='Training', leave=False)
-    for audio, pose in pbar:
+    # Set up progress logging milestones
+    total_batches = len(dataloader)
+    milestones = {int(total_batches * 0.25), int(total_batches * 0.5),
+                  int(total_batches * 0.75), total_batches}
+    logged_milestones = set()
+    for batch_idx, (audio, pose) in enumerate(pbar):
         audio = audio.to(device)
         pose = pose.to(device)
 
         optimizer.zero_grad()
         pred_pose = model(audio)
         loss = lossFunction(pred_pose, pose)
-        
+
         pos_loss = metrics_module.position_loss(pred_pose, pose)
         rot_loss = metrics_module.rotation_loss(pred_pose, pose)
-        
+
         pbar.set_postfix({
             'Pos Loss': f"{pos_loss.item():.4f}",
             'Rot Loss': f"{rot_loss.item():.4f}",
             'Ratio POS/ROT': f"{pos_loss.item()/rot_loss.item():.4f}"
         })
 
-        
+
         loss.backward()
         optimizer.step() # Update weights
 
         total_loss += loss.item()
         num_batches += 1
+
+        # Log progress at milestones
+        if logger:
+            for milestone in milestones:
+                if batch_idx >= milestone and milestone not in logged_milestones:
+                    percentage = (milestone / total_batches) * 100
+                    logger.debug(f"'Training EPOCH {epoch}': {percentage:.0f}% complete ({milestone}/{total_batches} batches)")
+                    logged_milestones.add(milestone)
     avg_loss_per_batch = total_loss / num_batches if num_batches > 0 else 0.0
     return avg_loss_per_batch
 
@@ -55,7 +116,16 @@ def train_model(model: torch.nn.Module,
                 optimizer: torch.optim.Optimizer,
                 num_epochs: int,
                 device: torch.device,
-                save_dir: str = './checkpoints') -> Dict[str, list]:
+                save_dir: str = './checkpoints',
+                logger: Optional[logging.Logger] = None) -> Dict[str, list]:
+    """
+    Train a model with logging support.
+
+    Parameters
+    ----------
+    logger : logging.Logger, optional
+        Logger instance for logging training progress
+    """
     os.makedirs(save_dir, exist_ok=True)
     # Check call to getModelName(), so it crashes fast before training:
     model.getModelName()
@@ -67,12 +137,20 @@ def train_model(model: torch.nn.Module,
         'val_angular_error': np.ones(num_epochs)*-1.0
     }
     model.train()
-    for epoch in range(num_epochs):
-        print(f"\n{'='*60}")
-        print(f"Epoch {epoch+1}/{num_epochs}")
-        print('='*60)
 
-        train_loss = train_epoch(model = model, dataloader = train_loader, lossFunction = lossFunction, optimizer = optimizer, device = device)
+    # Set up tqdm logging callback
+    if logger:
+        # Add tqdm-compatible handler temporarily
+        tqdm_handler = TqdmLoggingHandler()
+        tqdm_handler.setFormatter(logger.handlers[0].formatter if logger.handlers else None)
+        logger.addHandler(tqdm_handler)
+
+    for epoch in range(num_epochs):
+        epoch_header = f"\t\tEpoch {epoch+1}/{num_epochs}, on device '{device}'"
+        if logger:
+            logger.debug(epoch_header)
+
+        train_loss = train_epoch(epoch = epoch, model = model, dataloader = train_loader, lossFunction = lossFunction, optimizer = optimizer, device = device, logger=logger)
         val_metrics = evaluate(model, val_loader, lossFunction, device)
         history['train_loss'][epoch] = train_loss
         history['val_loss'][epoch] = val_metrics['loss']
@@ -80,15 +158,22 @@ def train_model(model: torch.nn.Module,
         history['val_rotation_mae'][epoch] = val_metrics['rotation_mae']
         history['val_angular_error'][epoch] = val_metrics['angular_error_deg']
 
-        print(f"\nTrain Loss: {train_loss:.6f}")
-        print(f"Val. Loss: {val_metrics['loss']:.6f}")
-        print(f"\nPosition Metrics (Validation):")
-        print(f"  Val. MSE: {val_metrics['position_mse']:.6f}")
-        print(f"  Val. MAE: {val_metrics['position_mae']:.6f}")
-        print(f"\nRotation Metrics (Validation):")
-        print(f"  Val. Quaternion MSE: {val_metrics['rotation_mse']:.6f}")
-        print(f"  Val. Quaternion MAE: {val_metrics['rotation_mae']:.6f}")
-        print(f"  Val. Angular Error: {val_metrics['angular_error_deg']:.2f}\u00B0")
+        results_msg = (
+            f"\t\tTrain Loss: {train_loss:.6f}\n"
+            f"\t\tVal. Loss: {val_metrics['loss']:.6f}\n"
+            f"\n"
+            f"\t\tPosition Metrics (Validation):\n"
+            f"\t\t  Val. MSE: {val_metrics['position_mse']:.6f}\n"
+            f"\t\t  Val. MAE: {val_metrics['position_mae']:.6f}\n"
+            f"\n"
+            f"\t\tRotation Metrics (Validation):\n"
+            f"\t\t  Val. Quaternion MSE: {val_metrics['rotation_mse']:.6f}\n"
+            f"\t\t  Val. Quaternion MAE: {val_metrics['rotation_mae']:.6f}\n"
+            f"\t\t  Val. Angular Error: {val_metrics['angular_error_deg']:.2f}°"
+        )
+
+        if logger:
+            logger.debug(results_msg)
 
         if val_metrics['loss'] < best_val_loss:
             best_val_loss = val_metrics['loss']
@@ -101,7 +186,10 @@ def train_model(model: torch.nn.Module,
                 'val_metrics': val_metrics,
                 'history': history
             }, checkpoint_path)
-            print(f" Saved best model (val loss: {best_val_loss:.6f})")
+
+            best_model_msg = f"    Saved best model (val loss: {best_val_loss:.6f})"
+            if logger:
+                logger.debug(best_model_msg)
 
     # Save last model:
     checkpoint_best_path = os.path.join(save_dir, f'{model.getModelName()}__latest_trained_model.pth')
@@ -112,19 +200,16 @@ def train_model(model: torch.nn.Module,
         'val_loss': val_metrics['loss'],
         'history': history,
     }, checkpoint_best_path)
-    
-    # Load and resume training (when needed):
-    # checkpoint = torch.load("latest_trained_model_checkpoint.pth")
-    # model.load_state_dict(checkpoint['model_state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    # start_epoch = checkpoint['epoch'] + 1   # resume from next epoch
-    # #last_loss = checkpoint['loss']
-    # print(f"Resuming from epoch {start_epoch}")
+
+    # Remove tqdm handler
+    if logger:
+        logger.removeHandler(tqdm_handler)
+
     return history
 
 
-def evaluate(model: torch.nn.Module, 
-             dataloader: DataLoader, 
+def evaluate(model: torch.nn.Module,
+             dataloader: DataLoader,
              lossFunction: Callable,
              device: torch.device,
              evalTest = False) -> Dict[str, float]:
@@ -148,10 +233,10 @@ def evaluate(model: torch.nn.Module,
 
             pred_pose = model(audio)
             loss = lossFunction(pred_pose, pose)
-            
+
             pos_loss = metrics_module.position_loss(pred_pose, pose)
             rot_loss = metrics_module.rotation_loss(pred_pose, pose)
-            
+
             pbar.set_postfix({
                 'Pos Loss': f"{pos_loss.item():.4f}",
                 'Rot Loss': f"{rot_loss.item():.4f}",
@@ -168,16 +253,25 @@ def evaluate(model: torch.nn.Module,
 
     return avg_metrics
 
-def evaluate_per_samples(model: torch.nn.Module, 
-             dataloader: DataLoader, 
-             lossFunction: Callable,
-             device: torch.device,
-             evalTest = False) -> Dict[str, float]:
+def evaluate_per_samples(model: torch.nn.Module,
+              dataloader: DataLoader,
+              lossFunction: Callable,
+              device: torch.device,
+              evalTest = False,
+              logger: Optional[logging.Logger] = None) -> Tuple[Dict[str, float], Dict[str, np.ndarray]]:
+    """
+    Evaluate model per sample with logging support.
+
+    Parameters
+    ----------
+    logger : logging.Logger, optional
+        Logger instance for logging evaluation progress
+    """
     model.eval()
 
     total_loss = 0.0
     num_samples = len(dataloader.dataset)  # total samples, not batches
-    
+
     all_metrics = {
         'position_mse': np.full(num_samples, np.nan, dtype = np.float64), 'position_mae': np.full(num_samples, np.nan, dtype = np.float64),
         'rotation_mse': np.full(num_samples, np.nan, dtype = np.float64), 'rotation_mae': np.full(num_samples, np.nan, dtype = np.float64),
@@ -187,22 +281,29 @@ def evaluate_per_samples(model: torch.nn.Module,
         desc_ = 'Testing [per sample]'
     else:
         desc_ = 'Evaluating [per sample]'
+
+    # Set up progress logging milestones
+    total_batches = len(dataloader)
+    milestones = {int(total_batches * 0.25), int(total_batches * 0.5),
+                  int(total_batches * 0.75), total_batches}
+    logged_milestones = set()
+
     start_idx = 0
     with torch.no_grad():
         pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False)
-        for audio_batch, pose_batch in pbar:
+        for batch_idx, (audio_batch, pose_batch) in enumerate(pbar, 1):
             batch_size = audio_batch.size(0)
             end_idx = start_idx + batch_size
-            
+
             audio = audio_batch.to(device)
             pose = pose_batch.to(device)
 
             pred_pose = model(audio)
             loss = lossFunction(pred_pose, pose)
-            
+
             pos_loss = metrics_module.position_loss(pred_pose, pose)
             rot_loss = metrics_module.rotation_loss(pred_pose, pose)
-            
+
             pbar.set_postfix({
                 'Pos Loss': f"{pos_loss.item():.4f}",
                 'Rot Loss': f"{rot_loss.item():.4f}",
@@ -214,13 +315,21 @@ def evaluate_per_samples(model: torch.nn.Module,
                 all_metrics[key][start_idx:end_idx] = values
             start_idx = end_idx
 
+            # Log progress at milestones
+            if logger:
+                for milestone in milestones:
+                    if batch_idx >= milestone and milestone not in logged_milestones:
+                        percentage = (milestone / total_batches) * 100
+                        logger.debug(f"{desc_}: {percentage:.0f}% complete ({milestone}/{total_batches} batches)")
+                        logged_milestones.add(milestone)
+
     avg_loss = total_loss / len(dataloader)
     avg_metrics = {key: np.mean(values) for key, values in all_metrics.items()}
     avg_metrics['loss'] = avg_loss
 
-    return avg_metrics
+    return avg_metrics, all_metrics
 
-def load_checkpoint(model: torch.nn.Module, 
+def load_checkpoint(model: torch.nn.Module,
                    checkpoint_path: str,
                    device: torch.device,
                    optimizer: torch.optim.Optimizer = None) -> Dict[str, Any]:
@@ -228,11 +337,11 @@ def load_checkpoint(model: torch.nn.Module,
     model.load_state_dict(checkpoint['model_state_dict'])
     epoch_checkpoint = checkpoint['epoch']
     # history_checkpoint = checkpoint['history']
-    
+
     if optimizer is not None:
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    
+
     print(f" Loaded checkpoint from epoch {epoch_checkpoint + 1}")
     print(f" Validation loss: {checkpoint['val_loss']:.6f}")
-    
+
     return checkpoint
