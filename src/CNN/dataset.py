@@ -1,6 +1,7 @@
-'''
-    Part of training of CNN models, CS230 project, fall 2025. 
-'''
+"""
+Part of training of CNN models, CS230 project, fall 2025.
+"""
+
 from pathlib import Path
 from typing import List, Optional
 import numpy as np
@@ -34,22 +35,29 @@ def is_interactive_environment() -> bool:
     if not sys.stderr.isatty():
         return False
 
-    if any(var in os.environ for var in ['SLURM_JOB_ID', 'SLURM_JOBID', 'PBS_JOBID', 'LSB_JOBID']):
+    if any(
+        var in os.environ
+        for var in ["SLURM_JOB_ID", "SLURM_JOBID", "PBS_JOBID", "LSB_JOBID"]
+    ):
         return False
 
     return True
 
+
 class AudioPoseDataset(Dataset):
-    def __init__(self,
-                 data_root: str,
-                 session_ids: List[int],
-                 use_channels: List[int] = [0, 1, 2, 3, 4, 5],
-                 filter_silence: bool = True,
-                 fs_audio: int = 48000,
-                 fs_head_tracking: float = 20.0,
-                 array_wearer_id: int = 2,
-                 cache_filename: str = None,
-                 logger: Optional[logging.Logger] = None):
+    def __init__(
+        self,
+        data_root: str,
+        session_ids: List[int],
+        use_channels: List[int] = [0, 1, 2, 3, 4, 5],
+        filter_silence: bool = True,
+        fs_audio: int = 48000,
+        fs_head_tracking: float = 20.0,
+        array_wearer_id: int = 2,
+        cache_filename: str = None,
+        output_dim: int = 7,
+        logger: Optional[logging.Logger] = None,
+    ):
         """
         Inputs:
             data_root: Root directory of EasyCom dataset
@@ -60,16 +68,22 @@ class AudioPoseDataset(Dataset):
             fs_head_tracking: Head tracking sampling frequency
             array_wearer_id: Participant ID of glasses wearer
             cache_filename: String - if not None, the dataset is cached to/from an .hdf5 file.
+            output_dim: Output dimension (3=position only, 4=rotation only, 7=full 6DOF)
             logger: Logger instance for debug-level logging
         """
         self.use_channels = use_channels
         self.filter_silence = filter_silence
+        if output_dim not in [3, 4, 7]:
+            raise ValueError(
+                f"AudioPoseDataset() ERROR: Output dimension must be 3, 4, or 7, but got {output_dim}!"
+            )
+        self.output_dim = output_dim
         self.logger = logger
         self.loader = data_utils.EasyComDataLoader(
             data_root=data_root,
             fs_audio=fs_audio,
             fs_head_tracking=fs_head_tracking,
-            array_wearer_id=array_wearer_id
+            array_wearer_id=array_wearer_id,
         )
         self.session_ids = session_ids
         self.samples = []
@@ -86,28 +100,43 @@ class AudioPoseDataset(Dataset):
     def _load_cached_dataset(self):
         # Check to see if data is cached:
         if self.cache_filename is not None:
-            fn_ = Path(self.cache_filename).stem + "_S" + str(self.session_ids[0]) + "_S" + str(self.session_ids[-1]) + ".hdf5"
+            fn_ = (
+                Path(self.cache_filename).stem
+                + "_S"
+                + str(self.session_ids[0])
+                + "_S"
+                + str(self.session_ids[-1])
+                + ".hdf5"
+            )
             fn_ = self.loader.data_root / fn_
         else:
             fn_ = None
         if fn_ is not None and fn_.exists():
             print(f" Dataset cached file {fn_} found - loading it...")
             with h5py.File(fn_, "r") as f:
-                root_groups = [name for name in f.keys() if isinstance(f[name], h5py.Group)]
+                root_groups = [
+                    name for name in f.keys() if isinstance(f[name], h5py.Group)
+                ]
                 session_ids = []
                 file_filter_silence = f["filter_silence"][...]
                 if not file_filter_silence == self.filter_silence:
-                    raise ValueError(f"Cached hdf5 file has filtered silence to {file_filter_silence}, but the dataset needs to have filtered silence to {self.filter_silence}.\nb"
-                                     "Use different filename for cache or change filter_silence input.")
+                    raise ValueError(
+                        f"Cached hdf5 file has filtered silence to {file_filter_silence}, but the dataset needs to have filtered silence to {self.filter_silence}.\nb"
+                        "Use different filename for cache or change filter_silence input."
+                    )
                 for group_string in root_groups:
                     match = re.search(r"session_(\d+)", group_string)
                     if match:
                         num = int(match.group(1))
                     else:
-                        raise ValueError(fr"Unexpected group type: expected session_\d+, but got {group_string}")
+                        raise ValueError(
+                            rf"Unexpected group type: expected session_\d+, but got {group_string}"
+                        )
                     session_ids.append(num)
                 if set(session_ids) != set(self.session_ids):
-                    raise ValueError(f"The cached database contains different sessions: {session_ids} . You requested sessions: {self.session_ids}")
+                    raise ValueError(
+                        f"The cached database contains different sessions: {session_ids} . You requested sessions: {self.session_ids}"
+                    )
                 audio_arrays_sessions = []
                 wearer_pose_arrays_sessions = []
                 for group_string in root_groups:
@@ -117,19 +146,25 @@ class AudioPoseDataset(Dataset):
                     wearer_pose_arrays_sessions.append(wearer_pose_session)
         else:
             print(f" Cached file missing {fn_}! Building dataset manually!")
-            audio_arrays_sessions, wearer_pose_arrays_sessions, session_ids = self._build_dataset()
+            audio_arrays_sessions, wearer_pose_arrays_sessions, session_ids = (
+                self._build_dataset()
+            )
 
             # dump data:
             with h5py.File(fn_, "w") as f:
-                f.create_dataset("filter_silence", data = self.filter_silence)
+                f.create_dataset("filter_silence", data=self.filter_silence)
                 for idx, session_id in enumerate(session_ids):
                     session_group = f.create_group(f"session_{session_id}")
-                    session_group.create_dataset("audio_frames", data=audio_arrays_sessions[idx])
-                    session_group.create_dataset("wearer_pose", data=wearer_pose_arrays_sessions[idx])
+                    session_group.create_dataset(
+                        "audio_frames", data=audio_arrays_sessions[idx]
+                    )
+                    session_group.create_dataset(
+                        "wearer_pose", data=wearer_pose_arrays_sessions[idx]
+                    )
 
-        self.all_audio_frames = np.concatenate(audio_arrays_sessions, axis = 0)
-        self.all_wearer_pose_6dof = np.concatenate(wearer_pose_arrays_sessions, axis = 0)
-        assert(self.all_audio_frames.shape[0] == self.all_wearer_pose_6dof.shape[0])
+        self.all_audio_frames = np.concatenate(audio_arrays_sessions, axis=0)
+        self.all_wearer_pose_6dof = np.concatenate(wearer_pose_arrays_sessions, axis=0)
+        assert self.all_audio_frames.shape[0] == self.all_wearer_pose_6dof.shape[0]
 
         print(f"   Loaded audio data: {self.all_audio_frames.shape}.")
         print(f"   Loaded wearer data: {self.all_wearer_pose_6dof.shape}.")
@@ -140,7 +175,11 @@ class AudioPoseDataset(Dataset):
         audio_arrays_sessions = []
         wearer_pose_arrays_sessions = []
         session_ids = []
-        for session_id in tqdm(self.session_ids, desc="Loading sessions", disable=not is_interactive_environment()):
+        for session_id in tqdm(
+            self.session_ids,
+            desc="Loading sessions",
+            disable=not is_interactive_environment(),
+        ):
             session_dir = self.loader.get_session_dir(session_id)
 
             if not session_dir.exists():
@@ -159,18 +198,25 @@ class AudioPoseDataset(Dataset):
                         raise ValueError(f"Got no audio for file {wav_file}!")
 
                     # Remove DC global:
-                    audio_DC = np.average(audio, axis = 0)
+                    audio_DC = np.average(audio, axis=0)
                     audio -= audio_DC
 
                     n_samples, n_channels = audio.shape
 
                     if max(self.use_channels) >= n_channels:
-                        raise ValueError(f"Requesting too many channels: {self.use_channels}. Audio has {n_channels} channels only!")
+                        raise ValueError(
+                            f"Requesting too many channels: {self.use_channels}. Audio has {n_channels} channels only!"
+                        )
 
                     poses_data = self.loader.load_tracked_poses(session_id, wav_file)
-                    t_max = (1.0*len(audio) -1) / self.loader.FS_AUDIO
-                    expected_N_frames_head_tracking = int(round(t_max * self.loader.FS_HEAD_TRACKING ))
-                    if poses_data is None or len(poses_data) != expected_N_frames_head_tracking:
+                    t_max = (1.0 * len(audio) - 1) / self.loader.FS_AUDIO
+                    expected_N_frames_head_tracking = int(
+                        round(t_max * self.loader.FS_HEAD_TRACKING)
+                    )
+                    if (
+                        poses_data is None
+                        or len(poses_data) != expected_N_frames_head_tracking
+                    ):
                         raise ValueError(f"Poses loading error!!")
 
                     wearer_pose_6dof = self.loader.extract_wearer_6dof(poses_data)
@@ -190,8 +236,14 @@ class AudioPoseDataset(Dataset):
                         speech_lookup = self.loader.create_speech_lookup(
                             transcription_data, n_frames
                         )
-                        participant_ids = self.loader.get_all_participant_ids(poses_data)
-                        external_participant_ids = [pid for pid in participant_ids if pid != self.loader.ARRAY_WEARER_ID]
+                        participant_ids = self.loader.get_all_participant_ids(
+                            poses_data
+                        )
+                        external_participant_ids = [
+                            pid
+                            for pid in participant_ids
+                            if pid != self.loader.ARRAY_WEARER_ID
+                        ]
 
                     for frame_idx in range(n_frames):
                         start_sample = frame_idx * samples_per_frame
@@ -202,9 +254,9 @@ class AudioPoseDataset(Dataset):
 
                         if self.filter_silence:
                             is_active = any(
-                                    speech_lookup[pid][frame_idx]
-                                    for pid in external_participant_ids
-                                )
+                                speech_lookup[pid][frame_idx]
+                                for pid in external_participant_ids
+                            )
                             if not is_active:
                                 continue
 
@@ -212,27 +264,37 @@ class AudioPoseDataset(Dataset):
                             raise ValueError("To small norm?!")
 
                         # Cache audio frame
-                        audio_frame = audio[start_sample:end_sample, self.use_channels].T
+                        audio_frame = audio[
+                            start_sample:end_sample, self.use_channels
+                        ].T
                         audio_frame = audio_frame.astype(np.float32)
 
                         # Remove DC (?):
                         # audio_frame_DC = np.average(audio_frame, axis = 1)
-                        #audio_frame -= audio_frame_DC[:,None]
+                        # audio_frame -= audio_frame_DC[:,None]
 
                         # We'll use self.all_audio_frames and self.all_wearer_pose_6dof as cached data instead
                         # self.samples.append({
                         #     'audio_frame': audio_frame,  # (n_channels, 2400)
                         #     'pose_6dof': wearer_pose_6dof[frame_idx].astype(np.float32)
                         # })
-                        audio_frames_session_list.append(audio_frame[None, :, :]) # n_frames x (n_channels, 2400)
+                        audio_frames_session_list.append(
+                            audio_frame[None, :, :]
+                        )  # n_frames x (n_channels, 2400)
                         wp_ = wearer_pose_6dof[frame_idx].astype(np.float32)
-                        wearer_pose_6dof_session_list.append(wp_[None, :])  # n_frames x (7)
+                        wearer_pose_6dof_session_list.append(
+                            wp_[None, :]
+                        )  # n_frames x (7)
 
                 except Exception as e:
                     raise ValueError(f"\n Error processing {wav_file.name}: {e}")
 
-            audio_frames_session_array = np.concatenate(audio_frames_session_list, axis = 0)
-            wearer_pose_session_array = np.concatenate(wearer_pose_6dof_session_list, axis = 0)
+            audio_frames_session_array = np.concatenate(
+                audio_frames_session_list, axis=0
+            )
+            wearer_pose_session_array = np.concatenate(
+                wearer_pose_6dof_session_list, axis=0
+            )
 
             # Build big list with all sessions:
             audio_arrays_sessions.append(audio_frames_session_array)
@@ -246,17 +308,24 @@ class AudioPoseDataset(Dataset):
         return len(self.all_audio_frames)
 
     def __getitem__(self, idx: int):
-        #sample = self.samples[idx]
-        #audio_tensor = torch.from_numpy(sample['audio_frame'])
-        #pose_tensor = torch.from_numpy(sample['pose_6dof'])
-
         audio_tensor = torch.from_numpy(self.all_audio_frames[idx, :, :])
-        pose_tensor = torch.from_numpy(self.all_wearer_pose_6dof[idx, :])
+        full_pose = self.all_wearer_pose_6dof[idx, :]
+
+        if self.output_dim == 3:
+            pose_tensor = torch.from_numpy(full_pose[:3])
+        elif self.output_dim == 4:
+            pose_tensor = torch.from_numpy(full_pose[3:])
+        else:
+            pose_tensor = torch.from_numpy(full_pose)
 
         return audio_tensor, pose_tensor
 
 
-def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logging.Logger] = None):
+def create_dataloaders(
+    config: src.baseline.config.Config,
+    output_dim: int = 7,
+    logger: Optional[logging.Logger] = None,
+):
     """
     Create train, validation, and test dataloaders.
 
@@ -264,6 +333,8 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
     ----------
     config : Config
         Configuration object with dataset parameters
+    output_dim : int
+        Output dimension (3=position only, 4=rotation only, 7=full 6DOF). Note the data written in cached files in AudioPoseDataset() stores all 7 values!
     logger : logging.Logger, optional
         Logger instance for debug-level logging
 
@@ -287,11 +358,14 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
         fs_head_tracking=config.FS_HEAD_TRACKING,
         array_wearer_id=config.ARRAY_WEARER_ID,
         cache_filename=config.TRAIN_CACHE_FN,
-        logger=logger
+        output_dim=output_dim,
+        logger=logger,
     )
     end = time.perf_counter()
 
-    train_time_msg = f"       Training dataset loading took {datetime.timedelta(seconds=end-start)}"
+    train_time_msg = (
+        f"       Training dataset loading took {datetime.timedelta(seconds=end-start)}"
+    )
     if logger:
         logger.debug(train_time_msg)
 
@@ -307,7 +381,8 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
         fs_head_tracking=config.FS_HEAD_TRACKING,
         array_wearer_id=config.ARRAY_WEARER_ID,
         cache_filename=config.VAL_CACHE_FN,
-        logger=logger
+        output_dim=output_dim,
+        logger=logger,
     )
 
     if logger:
@@ -322,7 +397,8 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
         fs_head_tracking=config.FS_HEAD_TRACKING,
         array_wearer_id=config.ARRAY_WEARER_ID,
         cache_filename=config.TEST_CACHE_FN,
-        logger=logger
+        output_dim=output_dim,
+        logger=logger,
     )
 
     dataset_sizes_msg = (
@@ -344,7 +420,7 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
         batch_size=config.BATCH_SIZE,
         shuffle=True,
         num_workers=config.NUM_WORKERS,
-        pin_memory=True if torch.cuda.is_available() else False
+        pin_memory=True if torch.cuda.is_available() else False,
     )
 
     val_loader = DataLoader(
@@ -352,7 +428,7 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
         batch_size=config.BATCH_SIZE,
         shuffle=False,
         num_workers=config.NUM_WORKERS,
-        pin_memory=True if torch.cuda.is_available() else False
+        pin_memory=True if torch.cuda.is_available() else False,
     )
 
     test_loader = DataLoader(
@@ -360,7 +436,7 @@ def create_dataloaders(config: src.baseline.config.Config, logger: Optional[logg
         batch_size=config.BATCH_SIZE,
         shuffle=False,
         num_workers=config.NUM_WORKERS,
-        pin_memory=True if torch.cuda.is_available() else False
+        pin_memory=True if torch.cuda.is_available() else False,
     )
 
     if logger:
