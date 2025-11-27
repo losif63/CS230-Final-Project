@@ -1,3 +1,6 @@
+'''
+    Part of training of CNN models, CS230 project, fall 2025. 
+'''
 from pathlib import Path
 from typing import List, Optional
 import numpy as np
@@ -7,6 +10,8 @@ import re
 from torch.utils.data import Dataset
 from tqdm.auto import tqdm
 import logging
+import sys
+import os
 
 import time, datetime
 
@@ -14,6 +19,25 @@ import matplotlib.pyplot as plt
 
 from src.CNN import data_utils
 import src.baseline.config
+
+
+def is_interactive_environment() -> bool:
+    """
+    Detect if we're running in an interactive environment (local terminal)
+    or a non-interactive environment (SLURM, batch job, etc.).
+
+    Returns
+    -------
+    bool
+        True if interactive (show TQDM progress bars), False if non-interactive (disable TQDM)
+    """
+    if not sys.stderr.isatty():
+        return False
+
+    if any(var in os.environ for var in ['SLURM_JOB_ID', 'SLURM_JOBID', 'PBS_JOBID', 'LSB_JOBID']):
+        return False
+
+    return True
 
 class AudioPoseDataset(Dataset):
     def __init__(self,
@@ -116,7 +140,7 @@ class AudioPoseDataset(Dataset):
         audio_arrays_sessions = []
         wearer_pose_arrays_sessions = []
         session_ids = []
-        for session_id in tqdm(self.session_ids, desc="Loading sessions"):
+        for session_id in tqdm(self.session_ids, desc="Loading sessions", disable=not is_interactive_environment()):
             session_dir = self.loader.get_session_dir(session_id)
 
             if not session_dir.exists():
