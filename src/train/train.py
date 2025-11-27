@@ -89,61 +89,20 @@ class AudioPoseDataset(Dataset):
     def __init__(self, cache_dir):
         self.cache_dir = Path(cache_dir)
         self.files = torch.load(self.cache_dir / "index.pt")
+        self.audios = []
+        self.poses = []
+        for file in tqdm(self.files):
+            path = self.cache_dir / file
+            data = torch.load(path, map_location="cpu")
+            self.audios.append(data["audio"])
+            self.poses.append(data['pose'])
+        assert len(self.audios) == len(self.poses)
 
     def __len__(self):
-        return len(self.files)
+        return len(self.audios)
 
     def __getitem__(self, idx):
-        path = self.cache_dir / self.files[idx]
-        data = torch.load(path, map_location="cpu")
-        return data["audio"], data["pose"]
-
-
-# class AudioPoseDataset(Dataset):
-#     """Dataset for audio-pose pairs from EasyCom dataset."""
-    
-#     def __init__(self, audio_dir, pose_dir, session_ids, participant_id=2):
-#         """
-#         Args:
-#             audio_dir: Path to Glasses_Microphone_Array_Audio directory
-#             pose_dir: Path to Tracked_Poses directory
-#             session_ids: List of session IDs to include (e.g., [1, 2, ..., 10])
-#             participant_id: Participant ID to extract pose for (default: 2)
-#         """
-#         self.audio_dir = Path(audio_dir)
-#         self.pose_dir = Path(pose_dir)
-#         self.session_ids = session_ids
-#         self.participant_id = participant_id
-        
-#         self.fs_head_tracking = get_head_tracking_fs()
-#         self.dT_head_tracking = 1.0 / self.fs_head_tracking
-        
-#         # Collect all audio-pose pairs
-#         self.samples = []
-#         for session_id in session_ids:
-#             session_name = f"Session_{session_id}"
-#             session_audio_dir = self.audio_dir / session_name
-#             session_pose_dir = self.pose_dir / session_name
-            
-#             if not session_audio_dir.exists() or not session_pose_dir.exists():
-#                 print(f"Warning: {session_name} not found, skipping...")
-#                 continue
-                
-#             for wav_file in session_audio_dir.glob("*.wav"):
-#                 pose_file = session_pose_dir / (wav_file.stem + ".json")
-#                 if pose_file.exists():
-#                     self.samples.append((wav_file, pose_file, session_name))
-        
-#         print(f"Loaded {len(self.samples)} audio-pose pairs from sessions {session_ids}")
-    
-#     def __len__(self):
-#         return len(self.samples)
-    
-#     def __getitem__(self, idx):
-#         wav_file, pose_file, session_name = self.samples[idx]
-        
-
-#         return audio_tensor, pose_tensor
+        return self.audios[idx], self.poses[idx]
 
 
 class AudioPoseModel(nn.Module):
@@ -211,15 +170,16 @@ def collate_fn(batch):
     return audio_batch, pose_batch
 
 
-def train_epoch(model, dataloader, criterion, optimizer, scheduler, device):
+def train_epoch(model, dataloader, criterion, optimizer, device):
     """Train for one epoch."""
     model.train()
     total_loss = 0.0
     num_batches = 0 
     
     for audio, pose in tqdm(dataloader):
-        audio = audio.to(device)
-        pose = pose.to(device)
+        # Move to device (non_blocking for faster transfer if using GPU)
+        audio = audio.to(device, non_blocking=True)
+        pose = pose.to(device, non_blocking=True)
         
         # Forward pass
         optimizer.zero_grad()
@@ -238,10 +198,16 @@ def train_epoch(model, dataloader, criterion, optimizer, scheduler, device):
         # Backward pass
         loss.backward()
         optimizer.step()
-        scheduler.step()
         
         total_loss += loss.item()
         num_batches += 1
+        
+        # Explicitly delete tensors to free memory
+        del audio, pose, output, loss, valid_mask
+    
+    # Clear CUDA cache periodically (every epoch)
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
     
     return total_loss / num_batches if num_batches > 0 else 0.0
 
@@ -264,8 +230,9 @@ def evaluate(model, dataloader, criterion, device):
     
     with torch.no_grad():
         for audio, pose in dataloader:
-            audio = audio.to(device)
-            pose = pose.to(device)
+            # Move to device (non_blocking for faster transfer if using GPU)
+            audio = audio.to(device, non_blocking=True)
+            pose = pose.to(device, non_blocking=True)
             
             # Forward pass
             output = model(audio)
@@ -307,11 +274,22 @@ def evaluate(model, dataloader, criterion, device):
                 total_angular_error += angular_errors_deg.sum().item()
                 
                 total_valid_frames += valid_mask.sum().item()
+                
+                # Explicitly delete intermediate tensors
+                del valid_output, valid_pose, pred_pos, gt_pos, positional_errors
+                del pred_quat, gt_quat, dot_product, angular_errors_rad, angular_errors_deg
             else:
                 loss = torch.tensor(0.0, device=device, requires_grad=False)
                 total_loss += loss.item()
             
+            # Explicitly delete batch tensors
+            del audio, pose, output, loss, valid_mask
+            
             num_batches += 1
+    
+    # Clear CUDA cache after evaluation
+    if device.type == 'cuda':
+        torch.cuda.empty_cache()
     
     # Compute averages
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
@@ -336,30 +314,29 @@ def run_experiment(config: TrainConfig,
         json.dump(config.to_dict(), f, indent=2)
 
     # Dataloaders
+    # Use num_workers=0 since dataset is already fully loaded in memory
+    # This avoids memory duplication from worker processes
     train_loader = DataLoader(
         train_dataset, 
         batch_size=config.batch_size,
         shuffle=True, 
         collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True)
+        num_workers=0,
+        pin_memory=False)
     dev_loader = DataLoader(
         dev_dataset, 
         batch_size=config.batch_size,
         shuffle=False, 
         collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True)
+        num_workers=0,
+        pin_memory=False)
     test_loader = DataLoader(
         test_dataset, 
         batch_size=config.batch_size,
         shuffle=False, 
         collate_fn=collate_fn,
-        num_workers=4,
-        pin_memory=True,
-        persistent_workers=True)
+        num_workers=0,
+        pin_memory=False)
 
     # Device
     device = torch.device("cpu")
@@ -395,8 +372,9 @@ def run_experiment(config: TrainConfig,
     print(f"[{run_dir.name}] Starting training with config:\n{config}")
 
     for epoch in tqdm(range(config.num_epochs), desc=f"{run_dir.name}"):
-        train_loss = train_epoch(model, train_loader, criterion, optimizer, scheduler, device)
+        train_loss = train_epoch(model, train_loader, criterion, optimizer, device)
         dev_metrics = evaluate(model, dev_loader, criterion, device)
+        scheduler.step()
 
         train_losses.append(train_loss)
         dev_losses.append(dev_metrics['loss'])
@@ -468,12 +446,12 @@ def main():
     test_dataset = AudioPoseDataset(test_dir)
     
     base_config = {
-        "batch_size": 4,
+        "batch_size": 8,
         "learning_rate": 2.5e-4,
         # "hidden_dim": 16,
         "num_layers": 1,
         "dropout": 0.1,
-        "num_epochs": 20,
+        "num_epochs": 30,
         "feature_extractor": LinearExtractor,
         "sequence_model": LSTMSeq,
         "head": LinearHead,
