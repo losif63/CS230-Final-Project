@@ -1,3 +1,8 @@
+"""
+    Part of training of CNN models, CS230 project, fall 2025. 
+
+    Based on file from Prerana Rane - Sebastian Prepelita.
+"""
 import json
 import warnings
 from pathlib import Path
@@ -26,8 +31,8 @@ def convert_int_to_float(data: np.ndarray) -> np.ndarray:
 
 
 class EasyComDataLoader:
-    def __init__(self, data_root: str, fs_audio: int = 48000, 
-                 fs_head_tracking: float = 20.0, array_wearer_id: int = 2):        
+    def __init__(self, data_root: str, fs_audio: int = 48000,
+                 fs_head_tracking: float = 20.0, array_wearer_id: int = 2):
         """
         Inputs:
             data_root: Root directory of EasyCom dataset
@@ -38,7 +43,7 @@ class EasyComDataLoader:
         self.data_root = Path(data_root)
         if not self.data_root.exists():
             raise FileNotFoundError(f"{self.data_root} does not exist! Loading will fail. Please check data_root input: {data_root}.")
-        
+
         if not self.data_root.is_dir():
             raise NotADirectoryError(f"{self.data_root} is not a directory! Loading will fail. Please check data_root input: {data_root}.")
 
@@ -101,7 +106,7 @@ class EasyComDataLoader:
         # (position + rotation) for glasses wearer
         n_frames = len(poses_data)
         pose_6dof = np.zeros((n_frames, 7), dtype=np.float32)
-        
+
         for frame_idx, frame in enumerate(poses_data):
             found_wearer = False
             for participant in frame["Participants"]:
@@ -121,12 +126,12 @@ class EasyComDataLoader:
 
     def get_all_participant_ids(self, poses_data: List[dict]) -> List[int]:
         '''
-        Function retrieves the unique participant IDs from a pose list read from a .json file. 
-        
-        :param poses_data: The list of orientation frame data as read from an orientation .json file. 
-                    As read by, e.g., self.load_speech_transcriptions() 
-        
-        :returns: A list with the unique participants ID in the list of frames. 
+        Function retrieves the unique participant IDs from a pose list read from a .json file.
+
+        :param poses_data: The list of orientation frame data as read from an orientation .json file.
+                    As read by, e.g., self.load_speech_transcriptions()
+
+        :returns: A list with the unique participants ID in the list of frames.
         '''
         #Get unique participant IDs from poses data
         return sorted(list(set(
@@ -135,27 +140,27 @@ class EasyComDataLoader:
             for part in frame["Participants"]
         )))
 
-    def create_speech_lookup(self, transcription_data: Optional[List[dict]], 
+    def create_speech_lookup(self, transcription_data: Optional[List[dict]],
                            n_frames: int) -> Dict[int, List[bool]]:
         '''
         Function return a lookup dictionary that looks like:
-            lookup[participant_id][frame_id] = True if participant participant_id talks/is active in frame_id 
+            lookup[participant_id][frame_id] = True if participant participant_id talks/is active in frame_id
                                              = False if participant participant_id does not talk/is not active in frame_id
-        
+
             Note that the lookup works even if a participant_id is not in a wave-file - it will always return False!
-        
+
         Use with, e.g., doesParticipantTalkInFrame(lookup, 2, 119).
-        
+
         :param transcription_data: Dictionary of transcription data. See load_speech_transcriptions().
         :param n_frames: Number of frames in the current transcription data.
-        
+
         :returns: a defaultdict as a lookup table of booleans where you can fastly query whether a participant ID talked in a frame.
                 Use, e.g., doesParticipantTalkInFrame() helper function.
         '''
         #lookup for when participants speak.
-        
-        # Factory method: whenever a new Participant_ID is seen, it will create a fresh list of 
-        #  length expected_N_frames_head_tracking+1 (so indices go from 0 to expected_N_frames_head_tracking) 
+
+        # Factory method: whenever a new Participant_ID is seen, it will create a fresh list of
+        #  length expected_N_frames_head_tracking+1 (so indices go from 0 to expected_N_frames_head_tracking)
         #  filled with False:
         lookup = defaultdict(lambda: [False] * n_frames)
 
