@@ -22,6 +22,9 @@ class CNNModelParams:
 
     This class encapsulates all the hyperparameters needed to create a CNN model,
     making it easy to save, load, and pass around model configurations.
+
+    Training parameters for ADAM (learning_rate, weight_decay, num_epochs) are optional.
+    If not provided, values from config.Config will be used during training.
     """
     model_name: str
     n_channels: int
@@ -35,6 +38,9 @@ class CNNModelParams:
     FC_hidden_dims: List[int]
     output_dim: int
     dropout: float
+    learning_rate: Optional[float] = None # for ADAM
+    weight_decay: Optional[float] = None # for ADAM
+    num_epochs: Optional[int] = None    # for training
 
     def to_dict(self):
         """Convert the dataclass to a dictionary."""
@@ -42,8 +48,19 @@ class CNNModelParams:
 
     @classmethod
     def from_dict(cls, data: dict):
-        """Create a CNNModelParams instance from a dictionary."""
-        return cls(**data)
+        """
+        Create a CNNModelParams instance from a dictionary.
+
+        Only uses fields that are defined in the dataclass, ignoring extra fields
+        like 'trainable_params', 'comment', 'hypothesis', 'Estimated total size', etc.
+        """
+        # Get valid field names from the dataclass
+        valid_fields = {field.name for field in cls.__dataclass_fields__.values()}
+
+        # Filter the input dictionary to only include valid fields
+        filtered_data = {key: value for key, value in data.items() if key in valid_fields}
+
+        return cls(**filtered_data)
 
     def checkInternalConsistency(self):
         """
@@ -152,7 +169,10 @@ class CNNModelParams:
             self.max_pool_stride_size_list == other.max_pool_stride_size_list and
             self.FC_hidden_dims == other.FC_hidden_dims and
             self.output_dim == other.output_dim and
-            self.dropout == other.dropout
+            self.dropout == other.dropout and
+            self.learning_rate == other.learning_rate and
+            self.weight_decay == other.weight_decay and
+            self.num_epochs == other.num_epochs
         )
 
     def __repr__(self):
@@ -170,7 +190,10 @@ class CNNModelParams:
             f"  max_pool_stride_size_list={self.max_pool_stride_size_list},",
             f"  FC_hidden_dims={self.FC_hidden_dims},",
             f"  output_dim={self.output_dim},",
-            f"  dropout={self.dropout}",
+            f"  dropout={self.dropout},",
+            f"  learning_rate={self.learning_rate},",
+            f"  weight_decay={self.weight_decay},",
+            f"  num_epochs={self.num_epochs}",
             f")"
         ]
         return "\n".join(lines)
