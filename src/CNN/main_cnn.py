@@ -1,7 +1,7 @@
-r'''
+r"""
 Created on Nov 20, 2025
 
-    Main file for training of CNN models, CS230 project, fall 2025. 
+    Main file for training of CNN models, CS230 project, fall 2025.
 
     Minimum window size: about 300 samples
 
@@ -21,7 +21,8 @@ Created on Nov 20, 2025
     deactivate
 
 @author: Sebastian Prepelita, based on baseline file from Prerana Rane
-'''
+"""
+
 import time
 import datetime
 import torch
@@ -47,6 +48,8 @@ from src.CNN import plotting
 from src.CNN import history_io
 from src.CNN import config
 
+import torchsummary
+
 
 @contextmanager
 def suppress_stdout():
@@ -64,7 +67,7 @@ def suppress_stdout():
     """
     original_stdout = sys.stdout
     try:
-        sys.stdout = open(os.devnull, 'w')
+        sys.stdout = open(os.devnull, "w")
         yield
     finally:
         sys.stdout.close()
@@ -73,6 +76,7 @@ def suppress_stdout():
 
 class LogMode(Enum):
     """Enum for logging output modes."""
+
     FILE_ONLY = "file"
     TERMINAL_ONLY = "terminal"
     BOTH = "both"
@@ -82,7 +86,7 @@ def setup_logger(
     log_filename: str,
     mode: LogMode = LogMode.BOTH,
     log_dir: Optional[str] = None,
-    level: int = logging.INFO
+    level: int = logging.INFO,
 ) -> logging.Logger:
     """
     Set up a logger with configurable output mode.
@@ -113,7 +117,7 @@ def setup_logger(
     >>> logger.info("Training started")
     """
     # Create logger
-    logger = logging.getLogger('CNN_Training')
+    logger = logging.getLogger("CNN_Training")
     logger.setLevel(level)
 
     # Clear any existing handlers
@@ -121,8 +125,7 @@ def setup_logger(
 
     # Set up formatter
     formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
     )
 
     # Add file handler if needed
@@ -131,11 +134,11 @@ def setup_logger(
             log_dir = str(config.Config.TRAINING_RESUTLS_DIR)
         os.makedirs(log_dir, exist_ok=True)
 
-        if not log_filename.endswith('.log'):
-            log_filename = log_filename + '.log'
+        if not log_filename.endswith(".log"):
+            log_filename = log_filename + ".log"
 
         log_path = os.path.join(log_dir, log_filename)
-        file_handler = logging.FileHandler(log_path, mode='w', encoding='utf-8')
+        file_handler = logging.FileHandler(log_path, mode="w", encoding="utf-8")
         file_handler.setLevel(level)
         file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
@@ -179,7 +182,7 @@ def get_available_devices(return_CPU=False, logger: Optional[logging.Logger] = N
     >>> device = torch.device(devices[1])  # Use first GPU
     """
     if return_CPU:
-        devices = ['cpu']
+        devices = ["cpu"]
     else:
         devices = []
 
@@ -225,9 +228,11 @@ def set_seed(seed: int):
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
 
+
 def getPlottingFileName(training_results_dir, cnnModel):
     os.makedirs(training_results_dir, exist_ok=True)
-    return training_results_dir / f'{cnnModel.getModelName()}__training_results.png'
+    return training_results_dir / f"{cnnModel.getModelName()}__training_results.png"
+
 
 def train_single_model_wrapper(args_tuple):
     """
@@ -249,47 +254,54 @@ def train_single_model_wrapper(args_tuple):
     # Create a unique logger for this model with the specified log_mode
     log_filename = f"cnn_training__{model_params.model_name}"
     model_logger = setup_logger(
-        log_filename=log_filename,
-        mode=log_mode,
-        level=logging.DEBUG
+        log_filename=log_filename, mode=log_mode, level=logging.DEBUG
     )
 
     try:
-        model_logger.info(f"\n{'='*80}" + f"\nTraining Model {model_index + 1}/{total_models}: {model_params.model_name}"
-                        + f"\n \tAssigned to device: {device_str}"
-                          + f"\n{'='*80}\n")
+        model_logger.info(
+            f"\n{'='*80}"
+            + f"\nTraining Model {model_index + 1}/{total_models}: {model_params.model_name}"
+            + f"\n \tAssigned to device: {device_str}"
+            + f"\n{'='*80}\n"
+        )
 
         # Train the model
         train_test_model(
             model_params=model_params,
             specific_torch_device=device_str,
-            logger=model_logger
+            logger=model_logger,
         )
 
-        model_logger.info(f"\n{'='*80}" + f"\nSuccessfully completed training for: {model_params.model_name}")
-        model_logger.info(f"   TOTAL TIME OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-\n " + f"{'='*80}\n")
+        model_logger.info(
+            f"\n{'='*80}"
+            + f"\nSuccessfully completed training for: {model_params.model_name}"
+        )
+        model_logger.info(
+            f"   TOTAL TIME OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-\n "
+            + f"{'='*80}\n"
+        )
 
         return {
-            'model_name': model_params.model_name,
-            'status': 'success',
-            'device': device_str
+            "model_name": model_params.model_name,
+            "status": "success",
+            "device": device_str,
         }
 
     except Exception as e:
         error_msg = f"Error training model '{model_params.model_name}': {str(e)}"
         model_logger.error(error_msg, exc_info=True)
         return {
-            'model_name': model_params.model_name,
-            'status': 'failed',
-            'error': str(e),
-            'device': device_str
+            "model_name": model_params.model_name,
+            "status": "failed",
+            "error": str(e),
+            "device": device_str,
         }
 
 
 def train_test_model(
     model_params: cnn_model.CNNModelParams,
-    specific_torch_device = None,
-    logger: Optional[logging.Logger] = None
+    specific_torch_device=None,
+    logger: Optional[logging.Logger] = None,
 ):
     """
     Train and test a CNN model.
@@ -320,10 +332,13 @@ def train_test_model(
         logger=logger,
     )
     # torchsummary.summary(cnnModel, input_size = (6, 2400))
+    # sys.exit()
 
     plotting_file = getPlottingFileName(training_results_dir, cnnModel)
     start = time.perf_counter()
-    train_loader, val_loader, test_loader = dataset.create_dataloaders(config.Config, logger=logger)
+    train_loader, val_loader, test_loader = dataset.create_dataloaders(
+        config.Config, output_dim=model_params.output_dim, logger=logger
+    )
     end = time.perf_counter()
 
     data_loading_msg = f"   Data loading took {datetime.timedelta(seconds=end-start)}"
@@ -335,21 +350,33 @@ def train_test_model(
 
     if model_params.learning_rate is None:
         model_params.learning_rate = config.Config.LEARNING_RATE
-        log_msgs.append(f"      Learning rate (ADAM): {model_params.learning_rate} (from config)")
+        log_msgs.append(
+            f"      Learning rate (ADAM): {model_params.learning_rate} (from config)"
+        )
     else:
-        log_msgs.append(f"      Learning rate (ADAM): {model_params.learning_rate} (from model_params)")
+        log_msgs.append(
+            f"      Learning rate (ADAM): {model_params.learning_rate} (from model_params)"
+        )
 
     if model_params.weight_decay is None:
         model_params.weight_decay = config.Config.WEIGHT_DECAY
-        log_msgs.append(f"      Weight decay (ADAM): {model_params.weight_decay} (from config)")
+        log_msgs.append(
+            f"      Weight decay (ADAM): {model_params.weight_decay} (from config)"
+        )
     else:
-        log_msgs.append(f"      Weight decay (ADAM): {model_params.weight_decay} (from model_params)")
+        log_msgs.append(
+            f"      Weight decay (ADAM): {model_params.weight_decay} (from model_params)"
+        )
 
     if model_params.num_epochs is None:
         model_params.num_epochs = config.Config.NUM_EPOCHS
-        log_msgs.append(f"      Num epochs (training): {model_params.num_epochs} (from config)")
+        log_msgs.append(
+            f"      Num epochs (training): {model_params.num_epochs} (from config)"
+        )
     else:
-        log_msgs.append(f"      Num epochs (training): {model_params.num_epochs} (from model_params)")
+        log_msgs.append(
+            f"      Num epochs (training): {model_params.num_epochs} (from model_params)"
+        )
 
     if logger:
         logger.info("\n".join(log_msgs))
@@ -357,7 +384,7 @@ def train_test_model(
     optimizer = torch.optim.Adam(
         cnnModel.parameters(),
         lr=model_params.learning_rate,
-        weight_decay=model_params.weight_decay
+        weight_decay=model_params.weight_decay,
     )
     ############################
     # Training the model:
@@ -376,7 +403,7 @@ def train_test_model(
         num_epochs=model_params.num_epochs,
         device=config.Config.DEVICE,
         save_dir=str(config.Config.CHECKPOINT_DIR),
-        logger=logger
+        logger=logger,
     )
 
     training_done_msg = f"      DONE TRAINING - took {datetime.timedelta(seconds=time.perf_counter()-start)}"
@@ -398,52 +425,68 @@ def train_test_model(
     # Testing on test set (+ writing .hdf5 file):
     # ############################################
     test_avg_metrics, test_all_metrics_per_sample = train.evaluate_per_samples(
-        cnnModel, test_loader, metrics.pose_6dof_loss, config.Config.DEVICE,
-        evalTest=True, logger=logger
+        cnnModel,
+        test_loader,
+        metrics.pose_6dof_loss,
+        config.Config.DEVICE,
+        evalTest=True,
+        logger=logger,
     )
     testing_msg = "  (6) Writing test results to filem and reloading..."
     if logger:
         logger.info(testing_msg)
     # Save with model parameters and metadata
-    checkpoint_path = os.path.join(config.Config.CHECKPOINT_DIR, f'{cnnModel.getModelName()}__latest_trained_model.pth')
+    checkpoint_path = os.path.join(
+        config.Config.CHECKPOINT_DIR,
+        f"{cnnModel.getModelName()}__latest_trained_model.pth",
+    )
     metadata = {
-        'split': 'test',
-        'batch_size': config.Config.BATCH_SIZE,
-        'latest_checkpoint': str(checkpoint_path),
-        'sessions': config.Config.TEST_SESSIONS
+        "split": "test",
+        "batch_size": config.Config.BATCH_SIZE,
+        "latest_checkpoint": str(checkpoint_path),
+        "sessions": config.Config.TEST_SESSIONS,
     }
-    train_result_fn = f'{cnnModel.getModelName()}__test_results'
+    train_result_fn = f"{cnnModel.getModelName()}__test_results"
     filepath = history_io.save_evaluation_results(
         history_data=test_all_metrics_per_sample,
         avg_metrics=test_avg_metrics,
         filename=train_result_fn,
         model_params=model_params,
         metadata=metadata,
-        logger=logger
+        logger=logger,
     )
 
     # Test reading/writing:
-    loaded_data, loaded_avg_metrics, loaded_metadata, loaded_model_params = history_io.load_evaluation_results(
-        filename=train_result_fn,
-        logger=logger
+    loaded_data, loaded_avg_metrics, loaded_metadata, loaded_model_params = (
+        history_io.load_evaluation_results(filename=train_result_fn, logger=logger)
     )
     testing_msg = "  (7) Retrieving and plotting test results..."
     if logger:
         logger.info(testing_msg)
     assert loaded_model_params == model_params
-    plotting.print_metrics(test_avg_metrics, title="Test Set Results [per sample]", logger=logger)
+    plotting.print_metrics(
+        test_avg_metrics, title="Test Set Results [per sample]", logger=logger
+    )
 
     # Plot test results
-    test_results_plot_path = config.Config.TESTING_RESUTLS_DIR / f'{cnnModel.getModelName()}__test_results_plot.png'
+    test_results_plot_path = (
+        config.Config.TESTING_RESUTLS_DIR
+        / f"{cnnModel.getModelName()}__test_results_plot.png"
+    )
     plotting.plot_test_results(
         avg_metrics=test_avg_metrics,
         history_per_sample=test_all_metrics_per_sample,
         model_params=model_params,
         save_path=str(test_results_plot_path),
-        logger=logger
+        logger=logger,
     )
 
-def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model_list_file: str = 'model_configs.json', log_mode = LogMode.BOTH):# Change to FILE_ONLY or TERMINAL_ONLY as needed
+
+def launch_parallel_training(
+    main_log_filename="MAIN_PARALLEL_TRAINING",
+    model_list_file: str = "model_configs.json",
+    log_mode=LogMode.BOTH,
+):  # Change to FILE_ONLY or TERMINAL_ONLY as needed
     """
     Launch parallel training of multiple models on available GPUs.
 
@@ -455,20 +498,22 @@ def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model
     start = time.perf_counter()
 
     logger = setup_logger(
-        log_filename=main_log_filename,
-        mode=log_mode,
-        level=logging.DEBUG
+        log_filename=main_log_filename, mode=log_mode, level=logging.DEBUG
     )
     # Set multiprocessing start method to 'spawn' for CUDA compatibility
     # This is required for CUDA on Linux/Unix systems. Windows uses 'spawn' by default.
     try:
-        multiprocessing.set_start_method('spawn', force=True)
-        logger.info("Set multiprocessing start method to 'spawn' for CUDA compatibility")
+        multiprocessing.set_start_method("spawn", force=True)
+        logger.info(
+            "Set multiprocessing start method to 'spawn' for CUDA compatibility"
+        )
     except RuntimeError as e:
         logger.error(f"Failed to set multiprocessing start method to 'spawn': {str(e)}")
         logger.error("This may cause issues with CUDA on Linux systems")
 
-    model_params_list = history_io.load_model_configs_from_json(model_list_file, logger=logger)
+    model_params_list = history_io.load_model_configs_from_json(
+        model_list_file, logger=logger
+    )
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
 
@@ -497,7 +542,9 @@ def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model
         for idx, model_params in enumerate(model_params_list):
             gpu_index = idx % len(available_GPU_devices)
             device_str = available_GPU_devices[gpu_index]
-            training_args.append((model_params, device_str, idx, len(model_params_list), log_mode))
+            training_args.append(
+                (model_params, device_str, idx, len(model_params_list), log_mode)
+            )
 
     elif assignment_strategy == "sequential":
         # Sequential: Assign models in blocks to GPUs; Less balanced if model training times vary significantly
@@ -507,7 +554,9 @@ def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model
             # Wrap around if we have more models than total capacity
             gpu_index = gpu_index % len(available_GPU_devices)
             device_str = available_GPU_devices[gpu_index]
-            training_args.append((model_params, device_str, idx, len(model_params_list), log_mode))
+            training_args.append(
+                (model_params, device_str, idx, len(model_params_list), log_mode)
+            )
 
     else:
         error_msg = f"Invalid GPU_ASSIGNMENT_STRATEGY: '{assignment_strategy}'. Must be 'round_robin' or 'sequential'."
@@ -517,8 +566,12 @@ def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model
     # Log GPU assignment plan
     logger.info("GPU Assignment Plan:")
     for gpu_idx, device_str in enumerate(available_GPU_devices):
-        assigned_models = [f"{args[0].model_name}" for args in training_args if args[1] == device_str]
-        logger.info(f"  {device_str}: {len(assigned_models)} models - {assigned_models}")
+        assigned_models = [
+            f"{args[0].model_name}" for args in training_args if args[1] == device_str
+        ]
+        logger.info(
+            f"  {device_str}: {len(assigned_models)} models - {assigned_models}"
+        )
     logger.info("")
 
     # Train models in parallel using ProcessPoolExecutor
@@ -537,69 +590,88 @@ def launch_parallel_training(main_log_filename = 'MAIN_PARALLEL_TRAINING', model
                 result = future.result()
                 results.append(result)
 
-                if result['status'] == 'success':
-                    logger.info(f"✓ Completed: {result['model_name']} on {result['device']}")
+                if result["status"] == "success":
+                    logger.info(
+                        f"✓ Completed: {result['model_name']} on {result['device']}"
+                    )
                 else:
-                    logger.error(f"✗ Failed: {result['model_name']} - {result.get('error', 'Unknown error')}")
+                    logger.error(
+                        f"✗ Failed: {result['model_name']} - {result.get('error', 'Unknown error')}"
+                    )
             except Exception as e:
-                logger.error(f"✗ Exception during training of {model_name}: {str(e)}", exc_info=True)
-                results.append({
-                    'model_name': model_name,
-                    'status': 'exception',
-                    'error': str(e)
-                })
+                logger.error(
+                    f"✗ Exception during training of {model_name}: {str(e)}",
+                    exc_info=True,
+                )
+                results.append(
+                    {"model_name": model_name, "status": "exception", "error": str(e)}
+                )
 
     # Summary
     logger.info(f"\n{'='*80}\n Training Summary:\n {'='*80}")
-    successful = sum(1 for r in results if r['status'] == 'success')
+    successful = sum(1 for r in results if r["status"] == "success")
     failed = len(results) - successful
     logger.info(f"  Total models: {len(results)}")
     logger.info(f"  Successful: {successful}")
     logger.info(f"  Failed: {failed}")
 
-    logger.info(f"{'='*80}\n" + f"   TOTAL TIME OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-\n " + f"{'='*80}\n")
+    logger.info(
+        f"{'='*80}\n"
+        + f"   TOTAL TIME OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-\n "
+        + f"{'='*80}\n"
+    )
 
     if failed > 0:
         logger.info("\nFailed models:")
         for result in results:
-            if result['status'] != 'success':
-                logger.info(f"  - {result['model_name']}: {result.get('error', 'Unknown error')}")
+            if result["status"] != "success":
+                logger.info(
+                    f"  - {result['model_name']}: {result.get('error', 'Unknown error')}"
+                )
 
     logger.info(f"{'='*80}\n")
 
-def launch_single_simple_model_training(log_mode = LogMode.BOTH):
+
+def launch_single_simple_model_training(log_mode=LogMode.BOTH):
     logger = setup_logger(
-         log_filename="cnn_training",
-         mode=log_mode,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
-         level=logging.DEBUG
-     )
+        log_filename="cnn_training",
+        mode=log_mode,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
+        level=logging.DEBUG,
+    )
     start = time.perf_counter()
     logger.info("Main CNN (simple single test model) starting...")
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
 
     simple_model_params = cnn_model.CNNModelParams(
-         model_name="first_test",
-         n_channels=6,
-         samples_per_frame=2400,
-         cnn_num_filter_list=[4, 4, 4],  # [64, 128, 256, 256], #same as output channels
-         cnn_filter_size_list=[10, 8, 4],  # [128, 128, 64, 8],
-         cnn_stride_list=[1, 2, 2],  # [1, 1, 1, 1],
-         cnn_padding_list=[0, 0, 0],  # [0, 0, 0, 0],
-         max_pool_filter_size_list=[2, 4, 6],  # [0, 2, 4, 6], # use 0 to skip
-         max_pool_stride_size_list=[2, 4, 6],  # [2, 2, 4, 6], # use 0 to skip
-         FC_hidden_dims=[10],  # [512, 256, 128],
-         output_dim=7,
-         num_epochs = 10,
-         learning_rate = 1e-4,
-         weight_decay = 1e-5,
-         dropout=0.3
-     )
-    train_test_model(simple_model_params, specific_torch_device = available_GPU_devices[0], logger=logger)
+        model_name="first_test",
+        n_channels=6,
+        samples_per_frame=2400,
+        cnn_num_filter_list=[4, 4, 4],  # [64, 128, 256, 256], #same as output channels
+        cnn_filter_size_list=[10, 8, 4],  # [128, 128, 64, 8],
+        cnn_stride_list=[1, 2, 2],  # [1, 1, 1, 1],
+        cnn_padding_list=[0, 0, 0],  # [0, 0, 0, 0],
+        max_pool_filter_size_list=[2, 4, 6],  # [0, 2, 4, 6], # use 0 to skip
+        max_pool_stride_size_list=[2, 4, 6],  # [2, 2, 4, 6], # use 0 to skip
+        FC_hidden_dims=[10],  # [512, 256, 128],
+        output_dim=3,
+        num_epochs=10,
+        learning_rate=1e-4,
+        weight_decay=1e-5,
+        dropout=0.3,
+    )
+    train_test_model(
+        simple_model_params,
+        specific_torch_device=available_GPU_devices[0],
+        logger=logger,
+    )
 
-    logger.info(f"Main CNN ending OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-")
+    logger.info(
+        f"Main CNN ending OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-"
+    )
 
-def launch_sequential_training(log_mode = LogMode.BOTH):
+
+def launch_sequential_training(log_mode=LogMode.BOTH):
     """
     Function loops through all the models in the model_params_list from the .json file and trains them sequentially
     (one after the other). Equivalent to the parallel training when there is only one GPU available.
@@ -610,35 +682,51 @@ def launch_sequential_training(log_mode = LogMode.BOTH):
     logger = setup_logger(
         log_filename="cnn_SEQUENTIAL_training",
         mode=log_mode,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
-        level=logging.DEBUG
+        level=logging.DEBUG,
     )
     logger.info("Main SEQUENTIAL CNN starting...")
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
 
-    model_params_list = history_io.load_model_configs_from_json('model_configs.json', logger=logger)
+    model_params_list = history_io.load_model_configs_from_json(
+        "model_configs.json", logger=logger
+    )
 
     for idx, model_params in enumerate(model_params_list):
-        msg_start = f"\n  {'='*80}\n" + f"  Training Model {idx + 1}/{len(model_params_list)}: {model_params.model_name}" +  "  Creating CNN model '{model_params.model_name}'\n" + f"  {'='*80}"
+        msg_start = (
+            f"\n  {'='*80}\n"
+            + f"  Training Model {idx + 1}/{len(model_params_list)}: {model_params.model_name}"
+            + "  Creating CNN model '{model_params.model_name}'\n"
+            + f"  {'='*80}"
+        )
         logger.info(msg_start)
 
         try:
-            train_test_model(model_params, specific_torch_device = available_GPU_devices[0], logger=logger)
+            train_test_model(
+                model_params,
+                specific_torch_device=available_GPU_devices[0],
+                logger=logger,
+            )
         except Exception as e:
             error_msg = f"Error training model '{model_params.model_name}': {str(e)}"
             logger.error(error_msg, exc_info=True)
             raise e
     logger.info("Main SEQUENTIAL CNN ending...")
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # ========================================================================
     # Option 1: Train a single defined model (see inside the function)
     # This is useful for quick testing or running a single model
     # ========================================================================
-    LOG_MODE = LogMode.FILE_ONLY  # Change to BOTH, FILE_ONLY or TERMINAL_ONLY as needed
+    LOG_MODE = LogMode.BOTH  # Change to BOTH, FILE_ONLY or TERMINAL_ONLY as needed
 
     # Apply suppress_stdout when FILE_ONLY mode to keep SLURM .out files clean
-    context_manager = suppress_stdout() if LOG_MODE == LogMode.FILE_ONLY else contextmanager(lambda: (yield))()
+    context_manager = (
+        suppress_stdout()
+        if LOG_MODE == LogMode.FILE_ONLY
+        else contextmanager(lambda: (yield))()
+    )
 
     with context_manager:
         launch_single_simple_model_training(log_mode=LOG_MODE)
