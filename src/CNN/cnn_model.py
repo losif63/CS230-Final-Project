@@ -1,8 +1,9 @@
-'''
+"""
 Created on Nov 23, 2025
 
 @author: Sebastian Prepelita based on basedline model by Prerana Rane
-'''
+"""
+
 import numpy as np
 
 import torch
@@ -15,6 +16,7 @@ from typing import List
 import logging
 from typing import Optional
 
+
 @dataclass
 class CNNModelParams:
     """
@@ -26,6 +28,7 @@ class CNNModelParams:
     Training parameters for ADAM (learning_rate, weight_decay, num_epochs) are optional.
     If not provided, values from config.Config will be used during training.
     """
+
     model_name: str
     n_channels: int
     samples_per_frame: int
@@ -38,9 +41,9 @@ class CNNModelParams:
     FC_hidden_dims: List[int]
     output_dim: int
     dropout: float
-    learning_rate: Optional[float] = None # for ADAM
-    weight_decay: Optional[float] = None # for ADAM
-    num_epochs: Optional[int] = None    # for training
+    learning_rate: Optional[float] = None  # for ADAM
+    weight_decay: Optional[float] = None  # for ADAM
+    num_epochs: Optional[int] = None  # for training
 
     def to_dict(self):
         """Convert the dataclass to a dictionary."""
@@ -58,7 +61,9 @@ class CNNModelParams:
         valid_fields = {field.name for field in cls.__dataclass_fields__.values()}
 
         # Filter the input dictionary to only include valid fields
-        filtered_data = {key: value for key, value in data.items() if key in valid_fields}
+        filtered_data = {
+            key: value for key, value in data.items() if key in valid_fields
+        }
 
         return cls(**filtered_data)
 
@@ -71,20 +76,24 @@ class CNNModelParams:
         """
         # Check n_channels is a positive integer
         if not isinstance(self.n_channels, int) or self.n_channels <= 0:
-            raise ValueError(f"n_channels must be a positive integer, got {self.n_channels}")
+            raise ValueError(
+                f"n_channels must be a positive integer, got {self.n_channels}"
+            )
 
         # Check samples_per_frame is a positive integer
         if not isinstance(self.samples_per_frame, int) or self.samples_per_frame <= 0:
-            raise ValueError(f"samples_per_frame must be a positive integer, got {self.samples_per_frame}")
+            raise ValueError(
+                f"samples_per_frame must be a positive integer, got {self.samples_per_frame}"
+            )
 
         # Check that all CNN-related lists are the same length
         cnn_lists = [
-            ('cnn_num_filter_list', self.cnn_num_filter_list),
-            ('cnn_filter_size_list', self.cnn_filter_size_list),
-            ('cnn_stride_list', self.cnn_stride_list),
-            ('cnn_padding_list', self.cnn_padding_list),
-            ('max_pool_filter_size_list', self.max_pool_filter_size_list),
-            ('max_pool_stride_size_list', self.max_pool_stride_size_list)
+            ("cnn_num_filter_list", self.cnn_num_filter_list),
+            ("cnn_filter_size_list", self.cnn_filter_size_list),
+            ("cnn_stride_list", self.cnn_stride_list),
+            ("cnn_padding_list", self.cnn_padding_list),
+            ("max_pool_filter_size_list", self.max_pool_filter_size_list),
+            ("max_pool_stride_size_list", self.max_pool_stride_size_list),
         ]
 
         # Verify all are lists
@@ -114,7 +123,9 @@ class CNNModelParams:
 
         # Check FC_hidden_dims is a list of positive integers
         if not isinstance(self.FC_hidden_dims, list):
-            raise ValueError(f"FC_hidden_dims must be a list, got {type(self.FC_hidden_dims).__name__}")
+            raise ValueError(
+                f"FC_hidden_dims must be a list, got {type(self.FC_hidden_dims).__name__}"
+            )
 
         for i, dim in enumerate(self.FC_hidden_dims):
             if not isinstance(dim, int) or dim <= 0:
@@ -122,13 +133,17 @@ class CNNModelParams:
                     f"FC_hidden_dims[{i}] must be a positive integer, got {dim}"
                 )
 
-        # Check output_dim is a positive integer
-        if not isinstance(self.output_dim, int) or self.output_dim <= 0:
-            raise ValueError(f"output_dim must be a positive integer, got {self.output_dim}")
+        # Check output_dim is in the allowed set {3, 4, 7}
+        if self.output_dim not in {3, 4, 7}:
+            raise ValueError(
+                f"This problem/project requires output_dim to be 3 (position only), 4 (rotation only), or 7 (full 6DOF), got {self.output_dim}"
+            )
 
         # Check dropout is a float between 0.0 and 1.0
         if not isinstance(self.dropout, (float, int)):
-            raise ValueError(f"dropout must be a float, got {type(self.dropout).__name__}")
+            raise ValueError(
+                f"dropout must be a float, got {type(self.dropout).__name__}"
+            )
 
         if not (0.0 <= self.dropout <= 1.0):
             raise ValueError(f"dropout must be between 0.0 and 1.0, got {self.dropout}")
@@ -158,21 +173,21 @@ class CNNModelParams:
             return False
 
         return (
-            self.model_name == other.model_name and
-            self.n_channels == other.n_channels and
-            self.samples_per_frame == other.samples_per_frame and
-            self.cnn_num_filter_list == other.cnn_num_filter_list and
-            self.cnn_filter_size_list == other.cnn_filter_size_list and
-            self.cnn_stride_list == other.cnn_stride_list and
-            self.cnn_padding_list == other.cnn_padding_list and
-            self.max_pool_filter_size_list == other.max_pool_filter_size_list and
-            self.max_pool_stride_size_list == other.max_pool_stride_size_list and
-            self.FC_hidden_dims == other.FC_hidden_dims and
-            self.output_dim == other.output_dim and
-            self.dropout == other.dropout and
-            self.learning_rate == other.learning_rate and
-            self.weight_decay == other.weight_decay and
-            self.num_epochs == other.num_epochs
+            self.model_name == other.model_name
+            and self.n_channels == other.n_channels
+            and self.samples_per_frame == other.samples_per_frame
+            and self.cnn_num_filter_list == other.cnn_num_filter_list
+            and self.cnn_filter_size_list == other.cnn_filter_size_list
+            and self.cnn_stride_list == other.cnn_stride_list
+            and self.cnn_padding_list == other.cnn_padding_list
+            and self.max_pool_filter_size_list == other.max_pool_filter_size_list
+            and self.max_pool_stride_size_list == other.max_pool_stride_size_list
+            and self.FC_hidden_dims == other.FC_hidden_dims
+            and self.output_dim == other.output_dim
+            and self.dropout == other.dropout
+            and self.learning_rate == other.learning_rate
+            and self.weight_decay == other.weight_decay
+            and self.num_epochs == other.num_epochs
         )
 
     def __repr__(self):
@@ -194,7 +209,7 @@ class CNNModelParams:
             f"  learning_rate={self.learning_rate},",
             f"  weight_decay={self.weight_decay},",
             f"  num_epochs={self.num_epochs}",
-            f")"
+            f")",
         ]
         return "\n".join(lines)
 
@@ -227,13 +242,11 @@ def getCnnOutputDimension1D(inDim: int, padding: int, filterSize: int, stride: i
     This matches the standard convolution output size calculation
     used in deep learning frameworks such as PyTorch and TensorFlow.
     """
-    return int(np.floor((inDim - filterSize + 2 * padding) / stride )) + 1
+    return int(np.floor((inDim - filterSize + 2 * padding) / stride)) + 1
+
 
 def getCnnOutputDimensions(
-    inDims: list[int],
-    paddings: list[int],
-    filterSizes: list[int],
-    strides: list[int]
+    inDims: list[int], paddings: list[int], filterSizes: list[int], strides: list[int]
 ) -> tuple[int, ...]:
     """
     Compute the output dimensions of a convolutional layer across multiple axes.
@@ -278,21 +291,23 @@ def getCnnOutputDimensions(
         outDims.append(outDim)
     return tuple(outDims)
 
+
 class CNNModel1D(nn.Module):
-    def __init__(self,
-                 model_name = "first_test",
-                 n_channels = 6,
-                 samples_per_frame = 2400,
-                 cnn_num_filter_list = [64, 128, 256, 256], #same as output channels
-                 cnn_filter_size_list = [128, 128, 64, 8],
-                 cnn_stride_list = [1, 1, 1, 1],
-                 cnn_padding_list = [0, 0, 0, 0],
-                 max_pool_filter_size_list = [0, 2, 3, 4], # use 0 to skip
-                 max_pool_stride_size_list = [2, 2, 3, 4], # use 0 to skip
-                 FC_hidden_dims = [512, 256, 128],
-                 output_dim = 7,
-                 dropout = 0.3
-               ):
+    def __init__(
+        self,
+        model_name="first_test",
+        n_channels=6,
+        samples_per_frame=2400,
+        cnn_num_filter_list=[64, 128, 256, 256],  # same as output channels
+        cnn_filter_size_list=[128, 128, 64, 8],
+        cnn_stride_list=[1, 1, 1, 1],
+        cnn_padding_list=[0, 0, 0, 0],
+        max_pool_filter_size_list=[0, 2, 3, 4],  # use 0 to skip
+        max_pool_stride_size_list=[2, 2, 3, 4],  # use 0 to skip
+        FC_hidden_dims=[512, 256, 128],
+        output_dim=7,
+        dropout=0.3,
+    ):
         """
         Build a 1D CNN + FC regression model for audio-to-pose mapping.
 
@@ -361,47 +376,69 @@ class CNNModel1D(nn.Module):
         # 1D CNN stack:
         #####################
         for cnn_layer_idx in range(self.n_cnn_filters):
-            #1D CNN on raw audio
-            layers.append(nn.Conv1d(in_channels=prev_channels,
-                                    out_channels=cnn_num_filter_list[cnn_layer_idx],
-                                    kernel_size=cnn_filter_size_list[cnn_layer_idx],
-                                    stride=cnn_stride_list[cnn_layer_idx],
-                                    padding=cnn_padding_list[cnn_layer_idx],)
-                         )
+            # 1D CNN on raw audio
+            layers.append(
+                nn.Conv1d(
+                    in_channels=prev_channels,
+                    out_channels=cnn_num_filter_list[cnn_layer_idx],
+                    kernel_size=cnn_filter_size_list[cnn_layer_idx],
+                    stride=cnn_stride_list[cnn_layer_idx],
+                    padding=cnn_padding_list[cnn_layer_idx],
+                )
+            )
             # BatchNorm after Conv1d
             layers.append(nn.BatchNorm1d(cnn_num_filter_list[cnn_layer_idx]))
-            batch_norm_channels += cnn_num_filter_list[cnn_layer_idx]*2
+            batch_norm_channels += cnn_num_filter_list[cnn_layer_idx] * 2
             # Activation
             layers.append(nn.ReLU())
             # Dropout (after BN + ReLU)
             layers.append(nn.Dropout(p=dropout))
             # out_channels * in_channels * kernel_size + out_channels (bias)
-            conv_params = (cnn_num_filter_list[cnn_layer_idx] * prev_channels * cnn_filter_size_list[cnn_layer_idx]) \
-              + cnn_num_filter_list[cnn_layer_idx]  # biases
+            conv_params = (
+                cnn_num_filter_list[cnn_layer_idx]
+                * prev_channels
+                * cnn_filter_size_list[cnn_layer_idx]
+            ) + cnn_num_filter_list[
+                cnn_layer_idx
+            ]  # biases
 
-            self.trainable_params.append( {'CNN' : conv_params} )
+            self.trainable_params.append({"CNN": conv_params})
             prev_channels = cnn_num_filter_list[cnn_layer_idx]
-            input_dim = getCnnOutputDimension1D(inDim = input_dim, padding = cnn_padding_list[cnn_layer_idx], filterSize = cnn_filter_size_list[cnn_layer_idx], stride = cnn_stride_list[cnn_layer_idx])
+            input_dim = getCnnOutputDimension1D(
+                inDim=input_dim,
+                padding=cnn_padding_list[cnn_layer_idx],
+                filterSize=cnn_filter_size_list[cnn_layer_idx],
+                stride=cnn_stride_list[cnn_layer_idx],
+            )
 
             if max_pool_filter_size_list[cnn_layer_idx] > 0:
-                layers.append(nn.MaxPool1d(kernel_size = max_pool_filter_size_list[cnn_layer_idx],
-                                           stride = max_pool_stride_size_list[cnn_layer_idx])
-                              )
+                layers.append(
+                    nn.MaxPool1d(
+                        kernel_size=max_pool_filter_size_list[cnn_layer_idx],
+                        stride=max_pool_stride_size_list[cnn_layer_idx],
+                    )
+                )
                 # Repeat output estimate for max pooling (padding = 0):
-                input_dim = getCnnOutputDimension1D(inDim = input_dim, padding = 0, filterSize = max_pool_filter_size_list[cnn_layer_idx],
-                                                    stride = max_pool_stride_size_list[cnn_layer_idx])
+                input_dim = getCnnOutputDimension1D(
+                    inDim=input_dim,
+                    padding=0,
+                    filterSize=max_pool_filter_size_list[cnn_layer_idx],
+                    stride=max_pool_stride_size_list[cnn_layer_idx],
+                )
         # Flatten before connecting to FC layers:
         layers.append(nn.Flatten())
         # Compute total output dimensions for the FC first layer:
-        prev_dim = N_dims * prev_channels * input_dim # out_channels * N_samples
+        prev_dim = N_dims * prev_channels * input_dim  # out_channels * N_samples
         # FC stack:
         #######################
         for h_dim in FC_hidden_dims:
             layers.append(nn.Linear(prev_dim, h_dim))
             # Batchnorm:
             layers.append(nn.BatchNorm1d(h_dim))
-            batch_norm_channels+= h_dim*2
-            self.trainable_params.append( {'FC (weights + biases)': h_dim*prev_dim+h_dim} )
+            batch_norm_channels += h_dim * 2
+            self.trainable_params.append(
+                {"FC (weights + biases)": h_dim * prev_dim + h_dim}
+            )
             # Activation:
             layers.append(nn.ReLU())
             # Dropout:
@@ -410,10 +447,12 @@ class CNNModel1D(nn.Module):
 
         layers.append(nn.Linear(prev_dim, output_dim))
         # Add last layer:
-        self.trainable_params.append( {'Output layer FC (weights + biases)': output_dim*prev_dim+output_dim} )
+        self.trainable_params.append(
+            {"Output layer FC (weights + biases)": output_dim * prev_dim + output_dim}
+        )
         # Batch norm trainable param:
         if batch_norm_channels > 0:
-            self.trainable_params.append( {'Batch norm params': batch_norm_channels} )
+            self.trainable_params.append({"Batch norm params": batch_norm_channels})
 
         self.CnNetwork = nn.Sequential(*layers)
 
@@ -426,25 +465,34 @@ class CNNModel1D(nn.Module):
         sum_ = 0
         for paramdict in self.trainable_params:
             if len(paramdict.keys()) > 1:
-                raise ValueError("I don't know how to calculate total number of parameters. I expected a single dict!")
+                raise ValueError(
+                    "I don't know how to calculate total number of parameters. I expected a single dict!"
+                )
             for key_ in paramdict.keys():
                 sum_ += paramdict[key_]
         return sum_
 
     def forward(self, x):
-        #x: (batch, n_channels, samples_per_frame) raw audio
-        # batch_size = x.shape[0]
         pose = self.CnNetwork(x)
-        # Normalize quaternion part (last 4 values)
-        position = pose[:, :3]
-        quaternion = pose[:, 3:]
-        quaternion = F.normalize(quaternion, p=2, dim=1)
-        return torch.cat([position, quaternion], dim=1)
+        # x: (batch_size, n_channels, samples_per_frame) raw audio
+        if self.output_dim == 3:
+            return pose
+        elif self.output_dim == 4:
+            quaternion = F.normalize(pose, p=2, dim=1)
+            return quaternion
+        else:
+            position = pose[:, :3]
+            quaternion = pose[:, 3:]
+            # Normalize quaternion part (last 4 elements):
+            quaternion = F.normalize(quaternion, p=2, dim=1)
+            return torch.cat([position, quaternion], dim=1)
 
 
-def create_model(model_params: CNNModelParams,
-                 config: src.baseline.config.Config,
-                 logger: Optional[logging.Logger] = None):
+def create_model(
+    model_params: CNNModelParams,
+    config: src.baseline.config.Config,
+    logger: Optional[logging.Logger] = None,
+):
     """
     Create a CNN model from a CNNModelParams dataclass.
 
@@ -472,24 +520,31 @@ def create_model(model_params: CNNModelParams,
     params_dict = model_params.to_dict()
 
     model = CNNModel1D(
-           model_name = params_dict['model_name'],
-           n_channels = params_dict['n_channels'],
-           samples_per_frame = params_dict['samples_per_frame'],
-           cnn_num_filter_list = params_dict['cnn_num_filter_list'],
-           cnn_filter_size_list = params_dict['cnn_filter_size_list'],
-           cnn_stride_list = params_dict['cnn_stride_list'],
-           cnn_padding_list = params_dict['cnn_padding_list'],
-           max_pool_filter_size_list = params_dict['max_pool_filter_size_list'], # use 0 to skip
-           max_pool_stride_size_list = params_dict['max_pool_stride_size_list'], # use 0 to skip
-           FC_hidden_dims = params_dict['FC_hidden_dims'],
-           output_dim = params_dict['output_dim'],
-           dropout = params_dict['dropout']
-        )
+        model_name=params_dict["model_name"],
+        n_channels=params_dict["n_channels"],
+        samples_per_frame=params_dict["samples_per_frame"],
+        cnn_num_filter_list=params_dict["cnn_num_filter_list"],
+        cnn_filter_size_list=params_dict["cnn_filter_size_list"],
+        cnn_stride_list=params_dict["cnn_stride_list"],
+        cnn_padding_list=params_dict["cnn_padding_list"],
+        max_pool_filter_size_list=params_dict[
+            "max_pool_filter_size_list"
+        ],  # use 0 to skip
+        max_pool_stride_size_list=params_dict[
+            "max_pool_stride_size_list"
+        ],  # use 0 to skip
+        FC_hidden_dims=params_dict["FC_hidden_dims"],
+        output_dim=params_dict["output_dim"],
+        dropout=params_dict["dropout"],
+    )
     model = model.to(config.DEVICE)
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if logger is not None:
-        msg_ =f"Model created with \n\t\t {num_params:,} trainable parameters\n" + f"\t\t Model located on '{ next(model.parameters()).device}' device.\n"
+        msg_ = (
+            f"Model created with \n\t\t {num_params:,} trainable parameters\n"
+            + f"\t\t Model located on '{ next(model.parameters()).device}' device.\n"
+        )
         msg_ += "\t\t Layers: " + str(model.trainable_params)
         logger.debug(msg_)
 
