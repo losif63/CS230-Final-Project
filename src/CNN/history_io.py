@@ -1,11 +1,13 @@
 """
-Utility functions for saving and loading evaluation history data to/from HDF5 files.
+Utility functions for saving and loading evaluation CNN training history data (CS230 project) to/from HDF5 files.
 
 HDF5 file structure:
 - /history_data/     (group) - Per-sample metric arrays with compression
 - /average_data/     (group) - Averaged metrics (no compression needed)
 - /metadata/         (group) - Metadata as datasets (no compression needed)
 - /model_params/     (group) - Model hyperparameters (no compression needed)
+
+    Part of training of CNN models, CS230 project, fall 2025. 
 
 Created on Nov 26, 2025
 @author: Sebastian Prepelita
@@ -79,12 +81,18 @@ def load_model_configs_from_json(
           "max_pool_stride_size_list": [2, 4, 6],
           "FC_hidden_dims": [10],
           "output_dim": 7,
-          "dropout": 0.3
+          "dropout": 0.3,
+          "learning_rate": 1e-4,
+          "weight_decay": 1e-5,
+          "num_epochs": 10
         },
         ... more models ...
       ]
     }
     ```
+
+    Note: learning_rate, weight_decay, and num_epochs are optional.
+    If not provided in the JSON, values from config.Config will be used during training.
 
     Example
     -------
