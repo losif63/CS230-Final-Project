@@ -12,6 +12,8 @@ import src.baseline.config
 from dataclasses import dataclass, asdict
 from typing import List
 
+import logging
+from typing import Optional
 
 @dataclass
 class CNNModelParams:
@@ -418,7 +420,8 @@ class CNNModel1D(nn.Module):
 
 
 def create_model(model_params: CNNModelParams,
-                 config: src.baseline.config.Config):
+                 config: src.baseline.config.Config,
+                 logger: Optional[logging.Logger] = None):
     """
     Create a CNN model from a CNNModelParams dataclass.
 
@@ -462,7 +465,9 @@ def create_model(model_params: CNNModelParams,
     model = model.to(config.DEVICE)
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(f"\n Model created with {num_params:,} trainable parameters")
-    print(f" Model located on '{ next(model.parameters()).device}' device.\n")
+    if logger is not None:
+        msg_ =f"Model created with \n\t\t {num_params:,} trainable parameters\n" + f"\t\t Model located on '{ next(model.parameters()).device}' device.\n"
+        msg_ += "\t\t Layers: " + str(model.trainable_params)
+        logger.debug(msg_)
 
     return model
