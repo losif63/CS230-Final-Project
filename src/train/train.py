@@ -1,5 +1,6 @@
 # Created Nov 8th, 2025
 # Author: Jaduk Suh
+import math
 import torch, torchaudio
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
@@ -146,6 +147,58 @@ class AudioPoseModel(nn.Module):
         output = output.view(batch_size, seq_len, -1)
         
         return output
+
+class PoseLoss(nn.Module):
+    """
+    Position + quaternion loss.
+
+    - Position: L2 (squared) error on first 3 dims (meters)
+    - Orientation: 1 - |dot(q_pred, q_gt)| on last 4 dims (quaternion geodesic proxy)
+    """
+    def __init__(self, pos_weight: float = 1.0, quat_weight: float = 0.2, ang_weight: float = 0.05, eps: float = 1e-8):
+        super().__init__()
+        self.pos_weight = pos_weight
+        self.quat_weight = quat_weight
+        self.ang_weight = ang_weight
+        self.eps = eps
+
+    def forward(self, output: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Args:
+            output: (N, 7)  [pos_x, pos_y, pos_z, quat_x, quat_y, quat_z, quat_w]
+            target: (N, 7)  same format
+        Returns:
+            scalar loss (mean over N)
+        """
+        # Split position and quaternion
+        pred_pos = output[:, :3]   # (N, 3)
+        gt_pos   = target[:, :3]   # (N, 3)
+        pred_q   = output[:, 3:]   # (N, 4)
+        gt_q     = target[:, 3:]   # (N, 4)
+
+        # --- Position loss: squared Euclidean distance ---
+        pos_diff = pred_pos - gt_pos
+        L_p = (pos_diff ** 2).sum(dim=-1)  # (N,)
+
+        # --- Quaternion loss: MSE Loss + Angular Loss ---
+        # Normalize quaternions to unit length
+        quat_diff = pred_q - gt_q
+        L_q = (quat_diff ** 2).sum(dim=-1)
+
+        pred_q = pred_q / (pred_q.norm(dim=-1, keepdim=True) + self.eps)
+        gt_q   = gt_q   / (gt_q.norm(dim=-1, keepdim=True) + self.eps)
+
+        # Dot product between unit quaternions
+        dot = torch.sum(pred_q * gt_q, dim=-1)        # (N,)
+        dot = dot.abs().clamp(-1.0 + self.eps, 1.0 - self.eps)
+        theta = 2 * torch.acos(dot)
+        L_a = theta ** 2
+
+        # Combine with weights
+        loss = self.pos_weight * L_p + self.quat_weight * L_q  + self.ang_weight * L_a  # (N,)
+
+        # Return mean over batch
+        return loss.mean()
 
 
 def collate_fn(batch):
@@ -348,7 +401,7 @@ def run_experiment(config: TrainConfig,
 
     # Model / optimizer / loss
     model = AudioPoseModel(config=config).to(device)
-    criterion = nn.MSELoss()
+    criterion = PoseLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate)
     scheduler = CosineAnnealingLR(optimizer=optimizer, T_max=config.num_epochs)
 
@@ -465,7 +518,7 @@ def main():
         cfg_dict["hidden_dim"] = dim 
         config = TrainConfig(cfg_dict)
 
-        run_name = f"hidden_dim/dim_{dim}"
+        run_name = f"pose_loss_ver2/dim_{dim}"
         run_dir = runs_root / run_name
 
         run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
