@@ -39,7 +39,7 @@ class Config:
     NUM_EPOCHS = 10
     LEARNING_RATE = 1e-4
     WEIGHT_DECAY = 1e-5
-    NUM_WORKERS = 0 # For windows...
+    NUM_WORKERS = 0 # For windows, use 0 (does not work). For A100, not a big improvement but 2 is fine...
 
     # Parallel training parameters
     TRAININGS_PER_GPU = 2  # Number of parallel trainings per GPU (e.g., 2 = train 2 models per GPU simultaneously)
