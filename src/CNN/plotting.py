@@ -287,7 +287,7 @@ def print_metrics(metrics: Dict[str, float], title: str = "Metrics", logger: Opt
     if 'angular_error_deg' in metrics:
         metrics_output.append(f"\t  Angular Error: {metrics['angular_error_deg']:.2f}°")
 
-    footer = '\t='*60
+    footer = "\t" + '='*60
 
     full_message = f"{header}\n" + "\n".join(metrics_output) + f"\n{footer}"
 
