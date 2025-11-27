@@ -12,7 +12,10 @@
       "max_pool_stride_size_list": [2, 4, 6],
       "FC_hidden_dims": [10],
       "output_dim": 7,
-      "dropout": 0.3
+      "dropout": 0.3,
+      "num_epochs": 10,
+      "learning_rate": 1e-4,
+      "weight_decay": 1e-5
     },
     {
       "model_name": "small_model",
@@ -26,7 +29,10 @@
       "max_pool_stride_size_list": [2, 2, 2],
       "FC_hidden_dims": [128, 64],
       "output_dim": 7,
-      "dropout": 0.2
+      "dropout": 0.2,
+      "num_epochs": 10,
+      "learning_rate": 1e-4,
+      "weight_decay": 1e-5
     },
     {
       "model_name": "medium_model",
@@ -40,7 +46,10 @@
       "max_pool_stride_size_list": [2, 2, 2, 4],
       "FC_hidden_dims": [256, 128, 64],
       "output_dim": 7,
-      "dropout": 0.3
+      "dropout": 0.3,
+      "num_epochs": 10,
+      "learning_rate": 1e-4,
+      "weight_decay": 1e-5
     },
     {
       "model_name": "large_model",
@@ -54,7 +63,11 @@
       "max_pool_stride_size_list": [2, 2, 3, 4],
       "FC_hidden_dims": [512, 256, 128],
       "output_dim": 7,
-      "dropout": 0.3
+      "dropout": 0.3,
+      "learning_rate": 1e-4,
+      "weight_decay": 1e-5,
+      "trainable_params": "15,292,359",
+      "Estimated total size": "85.25 MB/input"
     }
   ]
 }
