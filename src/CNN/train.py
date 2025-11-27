@@ -1,6 +1,8 @@
 '''
 Created on Nov 23, 2025
 
+    Part of training of CNN models, CS230 project, fall 2025. 
+
 @author: Prerana Rane with some changes by Sebastian Prepelita
 '''
 import numpy as np
@@ -9,9 +11,29 @@ from torch.utils.data import DataLoader
 from typing import Dict, Any, Callable, Tuple, Optional
 import tqdm
 import os
+import sys
 import logging
 
 from src.CNN import metrics as metrics_module
+
+
+def is_interactive_environment() -> bool:
+    """
+    Detect if we're running in an interactive environment (local terminal)
+    or a non-interactive environment (SLURM, batch job, etc.).
+
+    Returns
+    -------
+    bool
+        True if interactive (show TQDM progress bars), False if non-interactive (disable TQDM)
+    """
+    if not sys.stderr.isatty():
+        return False
+
+    if any(var in os.environ for var in ['SLURM_JOB_ID', 'SLURM_JOBID', 'PBS_JOBID', 'LSB_JOBID']):
+        return False
+
+    return True
 
 
 class TqdmLoggingHandler(logging.Handler):
@@ -68,7 +90,7 @@ def train_epoch(epoch: int,
     model.train() # No runtime overhead
     total_loss = 0.0
     num_batches = 0
-    pbar = tqdm.tqdm(dataloader, desc='Training', leave=False)
+    pbar = tqdm.tqdm(dataloader, desc='Training', leave=False, disable=not is_interactive_environment())
     # Set up progress logging milestones
     total_batches = len(dataloader)
     milestones = {int(total_batches * 0.25), int(total_batches * 0.5),
@@ -151,7 +173,7 @@ def train_model(model: torch.nn.Module,
             logger.debug(epoch_header)
 
         train_loss = train_epoch(epoch = epoch, model = model, dataloader = train_loader, lossFunction = lossFunction, optimizer = optimizer, device = device, logger=logger)
-        val_metrics = evaluate(model, val_loader, lossFunction, device)
+        val_metrics = evaluate(model, val_loader, lossFunction, device, logger=logger)
         history['train_loss'][epoch] = train_loss
         history['val_loss'][epoch] = val_metrics['loss']
         history['val_position_mae'][epoch] = val_metrics['position_mae']
@@ -212,7 +234,8 @@ def evaluate(model: torch.nn.Module,
              dataloader: DataLoader,
              lossFunction: Callable,
              device: torch.device,
-             evalTest = False) -> Dict[str, float]:
+             evalTest = False,
+             logger: Optional[logging.Logger] = None) -> Dict[str, float]:
     model.eval()
 
     total_loss = 0.0
@@ -225,8 +248,14 @@ def evaluate(model: torch.nn.Module,
         desc_ = 'Testing'
     else:
         desc_ = 'Evaluating'
+    # Set up progress logging milestones
+    total_batches = len(dataloader)
+    milestones = {int(total_batches * 0.33), int(total_batches * 0.66),
+                  total_batches}
+    logged_milestones = set()
+
     with torch.no_grad():
-        pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False)
+        pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False, disable=not is_interactive_environment())
         for idx, (audio, pose) in enumerate(pbar):
             audio = audio.to(device)
             pose = pose.to(device)
@@ -246,6 +275,14 @@ def evaluate(model: torch.nn.Module,
             metrics = metrics_module.compute_metrics(pred_pose, pose)
             for key, value in metrics.items():
                 all_metrics[key][idx] = value
+
+            # Log progress at milestones
+            if logger:
+                for milestone in milestones:
+                    if idx >= milestone and milestone not in logged_milestones:
+                        percentage = (milestone / total_batches) * 100
+                        logger.debug(f"{desc_}: {percentage:.0f}% complete ({milestone}/{total_batches} batches)")
+                        logged_milestones.add(milestone)
 
     avg_loss = total_loss / len(dataloader)
     avg_metrics = {key: np.mean(values) for key, values in all_metrics.items()}
@@ -290,7 +327,7 @@ def evaluate_per_samples(model: torch.nn.Module,
 
     start_idx = 0
     with torch.no_grad():
-        pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False)
+        pbar = tqdm.tqdm(dataloader, desc=desc_, leave=False, disable=not is_interactive_environment())
         for batch_idx, (audio_batch, pose_batch) in enumerate(pbar, 1):
             batch_size = audio_batch.size(0)
             end_idx = start_idx + batch_size
