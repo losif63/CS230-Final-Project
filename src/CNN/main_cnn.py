@@ -32,7 +32,7 @@ import sys
 import random
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union, cast
 from enum import Enum
 from contextlib import contextmanager
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -41,12 +41,14 @@ import multiprocessing
 import torch.nn as nn
 
 from src.CNN import cnn_model
+from src.CNN import cnn_2d_model
 from src.CNN import dataset
 from src.CNN import train
 from src.CNN import metrics
 from src.CNN import plotting
 from src.CNN import history_io
 from src.CNN import config
+from typing import Union
 
 import torchsummary
 
@@ -125,7 +127,8 @@ def setup_logger(
 
     # Set up formatter
     formatter = logging.Formatter(
-        "%(asctime)s - %(levelname)s - %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     # Add file handler if needed
@@ -241,7 +244,7 @@ def train_single_model_wrapper(args_tuple):
     Parameters
     ----------
     args_tuple : tuple
-        Tuple of (model_params, device_str, model_index, total_models, log_mode)
+        Tuple of (model_params, device_str, model_index, total_models, log_mode, apply_mag_and_gd)
 
     Returns
     -------
@@ -249,7 +252,9 @@ def train_single_model_wrapper(args_tuple):
         Dictionary with training results and status
     """
     start = time.perf_counter()
-    model_params, device_str, model_index, total_models, log_mode = args_tuple
+    model_params, device_str, model_index, total_models, log_mode, apply_mag_and_gd = (
+        args_tuple
+    )
 
     # Create a unique logger for this model with the specified log_mode
     log_filename = f"cnn_training__{model_params.model_name}"
@@ -269,6 +274,7 @@ def train_single_model_wrapper(args_tuple):
         train_test_model(
             model_params=model_params,
             specific_torch_device=device_str,
+            apply_mag_and_gd=apply_mag_and_gd,
             logger=model_logger,
         )
 
@@ -299,8 +305,9 @@ def train_single_model_wrapper(args_tuple):
 
 
 def train_test_model(
-    model_params: cnn_model.CNNModelParams,
+    model_params: Union[cnn_model.CNNModelParams, cnn_2d_model.CNNModel2DParams],
     specific_torch_device=None,
+    apply_mag_and_gd: bool = False,
     logger: Optional[logging.Logger] = None,
 ):
     """
@@ -308,10 +315,13 @@ def train_test_model(
 
     Parameters
     ----------
-    model_params : CNNModelParams
-        Model parameters
+    model_params : Union[CNNModelParams, CNNModel2DParams]
+        Model parameters - use CNNModelParams for 1D models, CNNModel2DParams for 2D models
     specific_torch_device : torch.device, optional
         Specific device to use for training
+    apply_mag_and_gd: bool
+        If True, apply log-magnitude and group delay the input data. Also use a 2D CNN model.
+        When True, model_params should be CNNModel2DParams. When False, should be CNNModelParams.
     logger : logging.Logger, optional
         Logger instance for logging progress
     """
@@ -321,23 +331,57 @@ def train_test_model(
     set_seed(config.Config.SEED)
     training_results_dir = config.Config.TRAINING_RESUTLS_DIR
 
+    # Validate model_params type matches apply_mag_and_gd setting
+    if apply_mag_and_gd and not isinstance(model_params, cnn_2d_model.CNNModel2DParams):
+        raise TypeError(
+            f"When apply_mag_and_gd=True, model_params must be CNNModel2DParams, "
+            f"got {type(model_params).__name__}"
+        )
+    if not apply_mag_and_gd and not isinstance(model_params, cnn_model.CNNModelParams):
+        raise TypeError(
+            f"When apply_mag_and_gd=False, model_params must be CNNModelParams, "
+            f"got {type(model_params).__name__}"
+        )
+
     msg = f"  (1) Creating CNN model '{model_params.model_name}'"
     if logger:
         logger.info(msg)
 
     # Create the model from parameters (automatically validates)
-    cnnModel = cnn_model.create_model(
-        model_params=model_params,
-        config=config.Config,
-        logger=logger,
-    )
-    # torchsummary.summary(cnnModel, input_size = (6, 2400))
+    if apply_mag_and_gd:
+        # Cast to CNNModel2DParams for type checker (already validated above)
+        model_params_2d = cast(cnn_2d_model.CNNModel2DParams, model_params)
+        cnnModel = cnn_2d_model.create_2d_cnn_model(
+            model_params=model_params_2d,
+            config=config.Config,
+            logger=logger,
+        )
+    else:
+        # Cast to CNNModelParams for type checker (already validated above)
+        model_params_1d = cast(cnn_model.CNNModelParams, model_params)
+        cnnModel = cnn_model.create_1d_cnn_model(
+            model_params=model_params_1d,
+            config=config.Config,
+            logger=logger,
+        )
+    # #################  Testing: print model summary #################
+    # if apply_mag_and_gd:
+    #     # For 2D CNN: input shape is (6, 2, freq_bins)
+    #     # For 2D models, samples_per_frame already equals freq_bins (1201)
+    #     freq_bins = model_params.samples_per_frame  # Already 1201, don't divide again!
+    #     torchsummary.summary(cnnModel, input_size=(6, 2, freq_bins))
+    # else:
+    #     # For 1D CNN: input shape is (6, samples_per_frame)
+    #     torchsummary.summary(cnnModel, input_size=(6, 2400))
     # sys.exit()
 
     plotting_file = getPlottingFileName(training_results_dir, cnnModel)
     start = time.perf_counter()
     train_loader, val_loader, test_loader = dataset.create_dataloaders(
-        config.Config, output_dim=model_params.output_dim, logger=logger
+        config.Config,
+        output_dim=model_params.output_dim,
+        apply_mag_and_gd=apply_mag_and_gd,
+        logger=logger,
     )
     end = time.perf_counter()
 
@@ -484,17 +528,31 @@ def train_test_model(
 
 def launch_parallel_training(
     main_log_filename="MAIN_PARALLEL_TRAINING",
-    model_list_file: str = "model_configs.json",
+    model_list_file: Optional[str] = None,
     log_mode=LogMode.BOTH,
+    apply_mag_and_gd: bool = False,
 ):  # Change to FILE_ONLY or TERMINAL_ONLY as needed
     """
     Launch parallel training of multiple models on available GPUs.
 
     Parameters
     ----------
-    model_params_list : list[cnn_model.CNNModelParams]
-        List of model parameters to train
+    main_log_filename : str
+        Base filename for the main log file
+    model_list_file : str, optional
+        Path to JSON file containing model configurations
+    log_mode : LogMode
+        Logging mode (FILE_ONLY, TERMINAL_ONLY, or BOTH)
+    apply_mag_and_gd : bool
+        If True, apply log-magnitude and group delay to input data and use 2D CNN models
     """
+    # Set default value inside function to avoid module initialization issues
+    if model_list_file is None:
+        if apply_mag_and_gd:
+            model_list_file = config.Config.MODEL_2D_LIST_FILE
+        else:
+            model_list_file = config.Config.MODEL_LIST_FILE
+
     start = time.perf_counter()
 
     logger = setup_logger(
@@ -543,7 +601,14 @@ def launch_parallel_training(
             gpu_index = idx % len(available_GPU_devices)
             device_str = available_GPU_devices[gpu_index]
             training_args.append(
-                (model_params, device_str, idx, len(model_params_list), log_mode)
+                (
+                    model_params,
+                    device_str,
+                    idx,
+                    len(model_params_list),
+                    log_mode,
+                    apply_mag_and_gd,
+                )
             )
 
     elif assignment_strategy == "sequential":
@@ -555,7 +620,14 @@ def launch_parallel_training(
             gpu_index = gpu_index % len(available_GPU_devices)
             device_str = available_GPU_devices[gpu_index]
             training_args.append(
-                (model_params, device_str, idx, len(model_params_list), log_mode)
+                (
+                    model_params,
+                    device_str,
+                    idx,
+                    len(model_params_list),
+                    log_mode,
+                    apply_mag_and_gd,
+                )
             )
 
     else:
@@ -632,7 +704,9 @@ def launch_parallel_training(
     logger.info(f"{'='*80}\n")
 
 
-def launch_single_simple_model_training(log_mode=LogMode.BOTH):
+def launch_single_simple_model_training(
+    log_mode=LogMode.BOTH, apply_mag_and_gd: bool = False
+):
     logger = setup_logger(
         log_filename="cnn_training",
         mode=log_mode,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
@@ -643,26 +717,83 @@ def launch_single_simple_model_training(log_mode=LogMode.BOTH):
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
 
-    simple_model_params = cnn_model.CNNModelParams(
-        model_name="first_test",
-        n_channels=6,
-        samples_per_frame=2400,
-        cnn_num_filter_list=[4, 4, 4],  # [64, 128, 256, 256], #same as output channels
-        cnn_filter_size_list=[10, 8, 4],  # [128, 128, 64, 8],
-        cnn_stride_list=[1, 2, 2],  # [1, 1, 1, 1],
-        cnn_padding_list=[0, 0, 0],  # [0, 0, 0, 0],
-        max_pool_filter_size_list=[2, 4, 6],  # [0, 2, 4, 6], # use 0 to skip
-        max_pool_stride_size_list=[2, 4, 6],  # [2, 2, 4, 6], # use 0 to skip
-        FC_hidden_dims=[10],  # [512, 256, 128],
-        output_dim=3,
-        num_epochs=10,
-        learning_rate=1e-4,
-        weight_decay=1e-5,
-        dropout=0.3,
+    if apply_mag_and_gd:
+        # For 2D model with FFT input: samples_per_frame should be freq_bins, not raw samples
+        freq_bins = 2400 // 2 + 1  # = 1201 for rfft
+        simple_model_params = cnn_2d_model.CNNModel2DParams(
+            model_name="first_test_2d",
+            n_channels=6,
+            samples_per_frame=freq_bins,  # Use freq_bins, not 2400!
+            input_height=2,  # 2D input: (6, 2, freq_bins) - 2 features (magnitude + group delay)
+            cnn_num_filter_list=[
+                4,
+                4,
+                4,
+            ],  # [64, 128, 256, 256], #same as output channels
+            # For 2D CNN: all sizes are (height, width) tuples
+            # Keep height=1 throughout to preserve the 2 feature channels
+            cnn_filter_size_list=[
+                (1, 10),  # Height=1 to keep both features, width=10 for frequency
+                (1, 8),
+                (1, 4),
+            ],
+            cnn_stride_list=[
+                (1, 1),  # Height=1 to preserve both feature channels
+                (1, 2),
+                (1, 2),
+            ],
+            cnn_padding_list=[
+                (0, 0),  # No padding
+                (0, 0),
+                (0, 0),
+            ],
+            max_pool_filter_size_list=[
+                (1, 2),  # Height=1 to keep both features, pool along frequency
+                (1, 4),
+                (1, 6),
+            ],
+            max_pool_stride_size_list=[
+                (1, 2),  # Same as pool size
+                (1, 4),
+                (1, 6),
+            ],
+            FC_hidden_dims=[10],  # [512, 256, 128],
+            output_dim=3,
+            num_epochs=10,
+            learning_rate=1e-4,
+            weight_decay=1e-5,
+            dropout=0.3,
+        )
+    else:
+        simple_model_params = cnn_model.CNNModelParams(
+            model_name="first_test",
+            n_channels=6,
+            samples_per_frame=2400,
+            cnn_num_filter_list=[
+                4,
+                4,
+                4,
+            ],  # [64, 128, 256, 256], #same as output channels
+            cnn_filter_size_list=[10, 8, 4],  # [128, 128, 64, 8],
+            cnn_stride_list=[1, 2, 2],  # [1, 1, 1, 1],
+            cnn_padding_list=[0, 0, 0],  # [0, 0, 0, 0],
+            max_pool_filter_size_list=[2, 4, 6],  # [0, 2, 4, 6], # use 0 to skip
+            max_pool_stride_size_list=[2, 4, 6],  # [2, 2, 4, 6], # use 0 to skip
+            FC_hidden_dims=[10],  # [512, 256, 128],
+            output_dim=3,
+            num_epochs=10,
+            learning_rate=1e-4,
+            weight_decay=1e-5,
+            dropout=0.3,
+        )
+
+    model_params_list = history_io.load_model_configs_from_json(
+        config.Config.MODEL_2D_LIST_FILE, logger=logger
     )
     train_test_model(
-        simple_model_params,
+        model_params=model_params_list[24],
         specific_torch_device=available_GPU_devices[0],
+        apply_mag_and_gd=apply_mag_and_gd,
         logger=logger,
     )
 
@@ -671,10 +802,17 @@ def launch_single_simple_model_training(log_mode=LogMode.BOTH):
     )
 
 
-def launch_sequential_training(log_mode=LogMode.BOTH):
+def launch_sequential_training(log_mode=LogMode.BOTH, apply_mag_and_gd: bool = False):
     """
     Function loops through all the models in the model_params_list from the .json file and trains them sequentially
     (one after the other). Equivalent to the parallel training when there is only one GPU available.
+
+    Parameters
+    ----------
+    log_mode : LogMode
+        Logging mode (FILE_ONLY, TERMINAL_ONLY, or BOTH)
+    apply_mag_and_gd : bool
+        If True, apply log-magnitude and group delay to input data and use 2D CNN models
     """
     # LogMode.FILE_ONLY: Only write to log file
     # LogMode.TERMINAL_ONLY: Only write to terminal (like print)
@@ -688,8 +826,14 @@ def launch_sequential_training(log_mode=LogMode.BOTH):
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
 
+    # Select appropriate config file based on apply_mag_and_gd
+    if apply_mag_and_gd:
+        model_list_file = config.Config.MODEL_2D_LIST_FILE
+    else:
+        model_list_file = config.Config.MODEL_LIST_FILE
+
     model_params_list = history_io.load_model_configs_from_json(
-        "model_configs.json", logger=logger
+        model_list_file, logger=logger
     )
 
     for idx, model_params in enumerate(model_params_list):
@@ -705,6 +849,7 @@ def launch_sequential_training(log_mode=LogMode.BOTH):
             train_test_model(
                 model_params,
                 specific_torch_device=available_GPU_devices[0],
+                apply_mag_and_gd=apply_mag_and_gd,
                 logger=logger,
             )
         except Exception as e:
@@ -729,20 +874,21 @@ if __name__ == "__main__":
     )
 
     with context_manager:
-        launch_single_simple_model_training(log_mode=LOG_MODE)
+        launch_single_simple_model_training(log_mode=LOG_MODE, apply_mag_and_gd=True)
 
     # ===========================================================================
     # Option 2: Multiple models (json), Sequential Training (one model at a time)
     # ===========================================================================
     # with context_manager:
-    #     launch_sequential_training(log_mode=LOG_MODE)
+    #     launch_sequential_training(log_mode=LOG_MODE, apply_mag_and_gd=False)
 
     # =======================================================================================================
     # Option 3: Multiple models (json), Parallel Training (train multiple models per GPU, on multiple GPUs)
     # =======================================================================================================
     # with context_manager:
     #     launch_parallel_training(
-    #         main_log_filename = 'MAIN_PARALLEL_TRAINING',
-    #         model_list_file = 'model_configs.json',
-    #         log_mode = LOG_MODE
+    #         main_log_filename="2D_MAIN_PARALLEL_TRAINING",
+    #         model_list_file=None,  # Change to your own .json file: "model_configs.json" or "2d_model_configs.json". If None, uses default from config.py
+    #         apply_mag_and_gd=True,
+    #         log_mode=LOG_MODE,
     #     )
