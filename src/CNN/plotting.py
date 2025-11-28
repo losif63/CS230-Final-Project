@@ -1,8 +1,9 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 import matplotlib.pyplot as plt
 import numpy as np
 import logging
 from src.CNN.cnn_model import CNNModelParams
+from src.CNN.cnn_2d_model import CNNModel2DParams
 
 
 def plot_training_history(history: Dict[str, List], save_path: str = 'training_results.png',
@@ -61,7 +62,7 @@ def plot_training_history(history: Dict[str, List], save_path: str = 'training_r
 def plot_test_results(
     avg_metrics: Dict[str, float],
     history_per_sample: Dict[str, np.ndarray],
-    model_params: Optional[CNNModelParams] = None,
+    model_params: Optional[Union[CNNModelParams, CNNModel2DParams]] = None,
     save_path: str = 'test_results.png',
     logger: Optional[logging.Logger] = None
 ):
