@@ -1,181 +1,481 @@
 """
-    Part of training of CNN models, CS230 project, fall 2025. 
+Created on Nov 23, 2025
 
-    Based on file from Prerana Rane - Sebastian Prepelita.
+    Part of training of CNN models, CS230 project, fall 2025.
+
+@author: Prerana Rane with some changes by Sebastian Prepelita
 """
-import json
-import warnings
-from pathlib import Path
-from typing import Tuple, List, Optional, Dict
-from collections import defaultdict
 
 import numpy as np
-from scipy.io import wavfile
+import torch
+from torch.utils.data import DataLoader
+from typing import Dict, Any, Callable, Tuple, Optional
+import tqdm
+import os
+import sys
+import logging
 
-warnings.filterwarnings('ignore')
+from src.CNN import metrics as metrics_module
 
 
-def convert_int_to_float(data: np.ndarray) -> np.ndarray:
-    if data.dtype == np.int32:
-        return data.astype(np.float32) / np.iinfo(np.int32).max
-    elif data.dtype == np.int16:
-        return data.astype(np.float32) / np.iinfo(np.int16).max
-    elif data.dtype == np.int64:
-        return data.astype(np.float32) / np.iinfo(np.int64).max
-    elif data.dtype == np.float32:
-        return data
-    elif data.dtype == np.float64:
-        return data.astype(np.float32)
+def is_interactive_environment() -> bool:
+    """
+    Detect if we're running in an interactive environment (local terminal)
+    or a non-interactive environment (SLURM, batch job, etc.).
+
+    Returns
+    -------
+    bool
+        True if interactive (show TQDM progress bars), False if non-interactive (disable TQDM)
+    """
+    if not sys.stderr.isatty():
+        return False
+
+    if any(
+        var in os.environ
+        for var in ["SLURM_JOB_ID", "SLURM_JOBID", "PBS_JOBID", "LSB_JOBID"]
+    ):
+        return False
+
+    return True
+
+
+class TqdmLoggingHandler(logging.Handler):
+    """Custom logging handler that works with tqdm progress bars."""
+
+    def emit(self, record):
+        try:
+            msg = self.format(record)
+            tqdm.tqdm.write(msg)
+        except Exception:
+            self.handleError(record)
+
+
+def create_tqdm_callback(logger: Optional[logging.Logger], desc: str, total: int):
+    """
+    Create a tqdm callback that logs progress at 25% intervals.
+
+    Parameters
+    ----------
+    logger : logging.Logger, optional
+        Logger instance
+    desc : str
+        Description for the progress bar
+    total : int
+        Total number of items
+
+    Returns
+    -------
+    function
+        Callback function for tqdm
+    """
+    if logger is None:
+        return None
+
+    milestones = {int(total * 0.25), int(total * 0.5), int(total * 0.75), total}
+    logged_milestones = set()
+
+    def callback(pbar):
+        current = pbar.n
+        for milestone in milestones:
+            if current >= milestone and milestone not in logged_milestones:
+                percentage = (milestone / total) * 100
+                logger.info(f"{desc}: {percentage:.0f}% complete ({milestone}/{total})")
+                logged_milestones.add(milestone)
+
+    return callback
+
+
+def train_epoch(
+    epoch: int,
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    lossFunction: Callable,
+    optimizer: torch.optim.Optimizer,
+    device: torch.device,
+    logger: Optional[logging.Logger] = None,
+) -> float:
+    model.train()  # No runtime overhead
+    total_loss = 0.0
+    num_batches = 0
+    output_dim = model.output_dim
+    pbar = tqdm.tqdm(
+        dataloader,
+        desc="Training",
+        leave=False,
+        disable=not is_interactive_environment(),
+    )
+    # Set up progress logging milestones
+    total_batches = len(dataloader)
+    milestones = {
+        int(total_batches * 0.25),
+        int(total_batches * 0.5),
+        int(total_batches * 0.75),
+        total_batches,
+    }
+    logged_milestones = set()
+    for batch_idx, (audio, pose) in enumerate(pbar):
+        audio = audio.to(device)
+        pose = pose.to(device)
+
+        optimizer.zero_grad()
+        pred_pose = model(audio)
+        loss = lossFunction(pred_pose, pose, output_dim)
+
+        pos_loss = metrics_module.position_loss(pred_pose, pose, output_dim)
+        rot_loss = metrics_module.rotation_loss(pred_pose, pose, output_dim)
+
+        if rot_loss.item() > 0.0:
+            ratio_text = f"{pos_loss.item()/rot_loss.item():.4f}"
+        else:
+            ratio_text = "N/A"
+
+        pbar.set_postfix(
+            {
+                "Pos Loss": f"{pos_loss.item():.4f}",
+                "Rot Loss": f"{rot_loss.item():.4f}",
+                "Ratio POS/ROT": ratio_text,
+            }
+        )
+
+        loss.backward()
+        optimizer.step()  # Update weights
+
+        total_loss += loss.item()
+        num_batches += 1
+
+        # Log progress at milestones
+        if logger:
+            for milestone in milestones:
+                if batch_idx >= milestone and milestone not in logged_milestones:
+                    percentage = (milestone / total_batches) * 100
+                    logger.debug(
+                        f"'Training EPOCH {epoch}': {percentage:.0f}% complete ({milestone}/{total_batches} batches)"
+                    )
+                    logged_milestones.add(milestone)
+    avg_loss_per_batch = total_loss / num_batches if num_batches > 0 else 0.0
+    return avg_loss_per_batch
+
+
+def train_model(
+    model: torch.nn.Module,
+    train_loader: DataLoader,
+    val_loader: DataLoader,
+    lossFunction: Callable,
+    optimizer: torch.optim.Optimizer,
+    num_epochs: int,
+    device: torch.device,
+    save_dir: str = "./checkpoints",
+    logger: Optional[logging.Logger] = None,
+) -> Dict[str, list]:
+    """
+    Train a model with logging support.
+
+    Parameters
+    ----------
+    logger : logging.Logger, optional
+        Logger instance for logging training progress
+    """
+    os.makedirs(save_dir, exist_ok=True)
+    # Check call to getModelName(), so it crashes fast before training:
+    model.getModelName()
+
+    best_val_loss = float("inf")
+    history = {
+        "train_loss": np.ones(num_epochs) * -1.0,
+        "val_loss": np.ones(num_epochs) * -1.0,
+        "val_position_mae": np.ones(num_epochs) * -1.0,
+        "val_rotation_mae": np.ones(num_epochs) * -1.0,
+        "val_angular_error": np.ones(num_epochs) * -1.0,
+    }
+    model.train()
+
+    # Set up tqdm logging callback
+    if logger:
+        # Add tqdm-compatible handler temporarily
+        tqdm_handler = TqdmLoggingHandler()
+        tqdm_handler.setFormatter(
+            logger.handlers[0].formatter if logger.handlers else None
+        )
+        logger.addHandler(tqdm_handler)
+
+    for epoch in range(num_epochs):
+        epoch_header = f"\t\tEpoch {epoch+1}/{num_epochs}, on device '{device}'"
+        if logger:
+            logger.debug(epoch_header)
+
+        train_loss = train_epoch(
+            epoch=epoch,
+            model=model,
+            dataloader=train_loader,
+            lossFunction=lossFunction,
+            optimizer=optimizer,
+            device=device,
+            logger=logger,
+        )
+        val_metrics = evaluate(model, val_loader, lossFunction, device, logger=logger)
+        history["train_loss"][epoch] = train_loss
+        history["val_loss"][epoch] = val_metrics["loss"]
+        history["val_position_mae"][epoch] = val_metrics["position_mae"]
+        history["val_rotation_mae"][epoch] = val_metrics["rotation_mae"]
+        history["val_angular_error"][epoch] = val_metrics["angular_error_deg"]
+
+        results_msg = (
+            f"\t\tTrain Loss: {train_loss:.6f}\n"
+            f"\t\tVal. Loss: {val_metrics['loss']:.6f}\n"
+            f"\n"
+            f"\t\tPosition Metrics (Validation):\n"
+            f"\t\t  Val. MSE: {val_metrics['position_mse']:.6f}\n"
+            f"\t\t  Val. MAE: {val_metrics['position_mae']:.6f}\n"
+            f"\n"
+            f"\t\tRotation Metrics (Validation):\n"
+            f"\t\t  Val. Quaternion MSE: {val_metrics['rotation_mse']:.6f}\n"
+            f"\t\t  Val. Quaternion MAE: {val_metrics['rotation_mae']:.6f}\n"
+            f"\t\t  Val. Angular Error: {val_metrics['angular_error_deg']:.2f}°"
+        )
+
+        if logger:
+            logger.debug(results_msg)
+
+        if val_metrics["loss"] < best_val_loss:
+            best_val_loss = val_metrics["loss"]
+            checkpoint_path = os.path.join(
+                save_dir, f"{model.getModelName()}__best_model.pth"
+            )
+            torch.save(
+                {
+                    "epoch": epoch,
+                    "model_state_dict": model.state_dict(),
+                    "optimizer_state_dict": optimizer.state_dict(),
+                    "val_loss": best_val_loss,
+                    "val_metrics": val_metrics,
+                    "history": history,
+                },
+                checkpoint_path,
+            )
+
+            best_model_msg = f"    Saved best model (val loss: {best_val_loss:.6f})"
+            if logger:
+                logger.debug(best_model_msg)
+
+    # Save last model:
+    checkpoint_best_path = os.path.join(
+        save_dir, f"{model.getModelName()}__latest_trained_model.pth"
+    )
+    torch.save(
+        {
+            "epoch": epoch,  # current epoch
+            "model_state_dict": model.state_dict(),
+            "optimizer_state_dict": optimizer.state_dict(),
+            "val_loss": val_metrics["loss"],
+            "history": history,
+        },
+        checkpoint_best_path,
+    )
+
+    # Remove tqdm handler
+    if logger:
+        logger.removeHandler(tqdm_handler)
+
+    return history
+
+
+def evaluate(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    lossFunction: Callable,
+    device: torch.device,
+    evalTest=False,
+    logger: Optional[logging.Logger] = None,
+) -> Dict[str, float]:
+    model.eval()
+
+    total_loss = 0.0
+    output_dim = model.output_dim
+    all_metrics = {
+        "position_mse": np.full(len(dataloader), np.nan, dtype=np.float64),
+        "position_mae": np.full(len(dataloader), np.nan, dtype=np.float64),
+        "rotation_mse": np.full(len(dataloader), np.nan, dtype=np.float64),
+        "rotation_mae": np.full(len(dataloader), np.nan, dtype=np.float64),
+        "angular_error_deg": np.full(len(dataloader), np.nan, dtype=np.float64),
+    }
+    if evalTest:
+        desc_ = "Testing"
     else:
-        raise ValueError(f"Unknown data type: {data.dtype}")
+        desc_ = "Evaluating"
+    # Set up progress logging milestones
+    total_batches = len(dataloader)
+    milestones = {int(total_batches * 0.33), int(total_batches * 0.66), total_batches}
+    logged_milestones = set()
+
+    with torch.no_grad():
+        pbar = tqdm.tqdm(
+            dataloader,
+            desc=desc_,
+            leave=False,
+            disable=not is_interactive_environment(),
+        )
+        for idx, (audio, pose) in enumerate(pbar):
+            audio = audio.to(device)
+            pose = pose.to(device)
+
+            pred_pose = model(audio)
+            loss = lossFunction(pred_pose, pose, output_dim)
+
+            pos_loss = metrics_module.position_loss(pred_pose, pose, output_dim)
+            rot_loss = metrics_module.rotation_loss(pred_pose, pose, output_dim)
+
+            if rot_loss.item() > 0.0:
+                ratio_text = f"{pos_loss.item()/rot_loss.item():.4f}"
+            else:
+                ratio_text = "N/A"
+
+            pbar.set_postfix(
+                {
+                    "Pos Loss": f"{pos_loss.item():.4f}",
+                    "Rot Loss": f"{rot_loss.item():.4f}",
+                    "Ratio POS/ROT": ratio_text,
+                }
+            )
+            total_loss += loss.item()
+            metrics = metrics_module.compute_metrics(pred_pose, pose, output_dim)
+            for key, value in metrics.items():
+                all_metrics[key][idx] = value
+
+            # Log progress at milestones
+            if logger:
+                for milestone in milestones:
+                    if idx >= milestone and milestone not in logged_milestones:
+                        percentage = (milestone / total_batches) * 100
+                        logger.debug(
+                            f"{desc_}: {percentage:.0f}% complete ({milestone}/{total_batches} batches)"
+                        )
+                        logged_milestones.add(milestone)
+
+    avg_loss = total_loss / len(dataloader)
+    avg_metrics = {key: np.mean(values) for key, values in all_metrics.items()}
+    avg_metrics["loss"] = avg_loss
+
+    return avg_metrics
 
 
-class EasyComDataLoader:
-    def __init__(self, data_root: str, fs_audio: int = 48000,
-                 fs_head_tracking: float = 20.0, array_wearer_id: int = 2):
-        """
-        Inputs:
-            data_root: Root directory of EasyCom dataset
-            fs_audio: Audio sampling frequency (Hz)
-            fs_head_tracking: Head tracking sampling frequency (Hz)
-            array_wearer_id: Participant ID of the glasses wearer
-        """
-        self.data_root = Path(data_root)
-        if not self.data_root.exists():
-            raise FileNotFoundError(f"{self.data_root} does not exist! Loading will fail. Please check data_root input: {data_root}.")
+def evaluate_per_samples(
+    model: torch.nn.Module,
+    dataloader: DataLoader,
+    lossFunction: Callable,
+    device: torch.device,
+    evalTest=False,
+    logger: Optional[logging.Logger] = None,
+) -> Tuple[Dict[str, float], Dict[str, np.ndarray]]:
+    """
+    Evaluate model per sample with logging support.
 
-        if not self.data_root.is_dir():
-            raise NotADirectoryError(f"{self.data_root} is not a directory! Loading will fail. Please check data_root input: {data_root}.")
+    Parameters
+    ----------
+    logger : logging.Logger, optional
+        Logger instance for logging evaluation progress
+    """
+    model.eval()
 
-        self.mic_array_audio_path = self.data_root / "Glasses_Microphone_Array_Audio"
-        self.tracked_poses_dir = self.data_root / "Tracked_Poses"
-        self.speech_transcriptions_dir = self.data_root / "Speech_Transcriptions"
+    total_loss = 0.0
+    output_dim = model.output_dim
+    num_samples = len(dataloader.dataset)  # total samples, not batches
 
-        self.FS_AUDIO = fs_audio
-        self.FS_HEAD_TRACKING = fs_head_tracking
-        self.DT_HEAD_TRACKING = 1.0 / self.FS_HEAD_TRACKING
-        self.ARRAY_WEARER_ID = array_wearer_id
+    all_metrics = {
+        "position_mse": np.full(num_samples, np.nan, dtype=np.float64),
+        "position_mae": np.full(num_samples, np.nan, dtype=np.float64),
+        "rotation_mse": np.full(num_samples, np.nan, dtype=np.float64),
+        "rotation_mae": np.full(num_samples, np.nan, dtype=np.float64),
+        "angular_error_deg": np.full(num_samples, np.nan, dtype=np.float64),
+    }
+    if evalTest:
+        desc_ = "Testing [per sample]"
+    else:
+        desc_ = "Evaluating [per sample]"
 
-        self.stats = {'success': 0, 'failed': 0}
+    # Set up progress logging milestones
+    total_batches = len(dataloader)
+    milestones = {
+        int(total_batches * 0.25),
+        int(total_batches * 0.5),
+        int(total_batches * 0.75),
+        total_batches,
+    }
+    logged_milestones = set()
 
-    def get_session_dir(self, session_id: int) -> Path:
-        session_name = f"Session_{session_id}"
-        return self.mic_array_audio_path / session_name
+    start_idx = 0
+    with torch.no_grad():
+        pbar = tqdm.tqdm(
+            dataloader,
+            desc=desc_,
+            leave=False,
+            disable=not is_interactive_environment(),
+        )
+        for batch_idx, (audio_batch, pose_batch) in enumerate(pbar, 1):
+            batch_size = audio_batch.size(0)
+            end_idx = start_idx + batch_size
 
-    def get_wav_files(self, session_dir: Path) -> List[Path]:
-        return sorted(session_dir.glob("*.wav"))
+            audio = audio_batch.to(device)
+            pose = pose_batch.to(device)
 
-    def load_audio(self, wav_file: Path) -> Tuple[Optional[np.ndarray], Optional[int]]:
-        try:
-            fs, data = wavfile.read(str(wav_file))
-            assert fs == self.FS_AUDIO
-            data = convert_int_to_float(data)
-            self.stats['success'] += 1
-            return data, fs
-        except Exception as e:
-            self.stats['failed'] += 1
-            print(f"\n Failed to load {wav_file.name}: {e}")
-            return None, None
+            pred_pose = model(audio)
+            loss = lossFunction(pred_pose, pose, output_dim)
 
-    def load_tracked_poses(self, session_id: int, wav_file: Path) -> Optional[List[dict]]:
-        #Load pose data for audio file
-        session_name = f"Session_{session_id}"
-        pose_file = self.tracked_poses_dir / session_name / (wav_file.stem + ".json")
-        if not pose_file.exists() or not pose_file.is_file():
-            raise ValueError(f"Corresponding pose file {pose_file} does not exist for session #{session_id} and wave file {wav_file}!")
-        with open(pose_file, 'r') as f:
-            return json.load(f)
+            pos_loss = metrics_module.position_loss(pred_pose, pose, output_dim)
+            rot_loss = metrics_module.rotation_loss(pred_pose, pose, output_dim)
 
-    def load_speech_transcriptions(self, session_id: int, wav_file: Path) -> Optional[List[dict]]:
-        #Load speech transcription data
-        session_name = f"Session_{session_id}"
-        trans_file = self.speech_transcriptions_dir / session_name / (wav_file.stem + ".json")
-        if not trans_file.exists():
-            return ValueError(f"Corresponding transcript file {trans_file} does not exist for session #{session_id} and wave file {wav_file}!")
-        # Try reading with utf-8 first, fallback to latin-1 if that fails
-        # This handles files created on Windows with different encodings
-        try:
-            with open(trans_file, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except UnicodeDecodeError:
-            # Fallback to latin-1 (Windows-1252 compatible) for files with special characters
-            with open(trans_file, 'r', encoding='latin-1') as f:
-                return json.load(f)
+            if rot_loss.item() > 0.0:
+                ratio_text = f"{pos_loss.item()/rot_loss.item():.4f}"
+            else:
+                ratio_text = "N/A"
 
-    def extract_wearer_6dof(self, poses_data: List[dict]) -> Optional[np.ndarray]:
-        # (position + rotation) for glasses wearer
-        n_frames = len(poses_data)
-        pose_6dof = np.zeros((n_frames, 7), dtype=np.float32)
+            pbar.set_postfix(
+                {
+                    "Pos Loss": f"{pos_loss.item():.4f}",
+                    "Rot Loss": f"{rot_loss.item():.4f}",
+                    "Ratio POS/ROT": ratio_text,
+                }
+            )
+            total_loss += loss.item()
+            per_sample_metrics = metrics_module.compute_metrics_per_sample(
+                pred_pose, pose, output_dim
+            )
+            for key, values in per_sample_metrics.items():
+                all_metrics[key][start_idx:end_idx] = values
+            start_idx = end_idx
 
-        for frame_idx, frame in enumerate(poses_data):
-            found_wearer = False
-            for participant in frame["Participants"]:
-                if participant["Participant_ID"] == self.ARRAY_WEARER_ID:
-                    pose_6dof[frame_idx, 0] = participant["Position_X"]
-                    pose_6dof[frame_idx, 1] = participant["Position_Y"]
-                    pose_6dof[frame_idx, 2] = participant["Position_Z"]
-                    pose_6dof[frame_idx, 3] = participant["Quaternion_X"]
-                    pose_6dof[frame_idx, 4] = participant["Quaternion_Y"]
-                    pose_6dof[frame_idx, 5] = participant["Quaternion_Z"]
-                    pose_6dof[frame_idx, 6] = participant["Quaternion_W"] #[x, y, z, qx, qy, qz, qw]
-                    found_wearer = True
-                    break
-            assert(found_wearer)
+            # Log progress at milestones
+            if logger:
+                for milestone in milestones:
+                    if batch_idx >= milestone and milestone not in logged_milestones:
+                        percentage = (milestone / total_batches) * 100
+                        logger.debug(
+                            f"{desc_}: {percentage:.0f}% complete ({milestone}/{total_batches} batches)"
+                        )
+                        logged_milestones.add(milestone)
 
-        return pose_6dof
+    avg_loss = total_loss / len(dataloader)
+    avg_metrics = {key: np.mean(values) for key, values in all_metrics.items()}
+    avg_metrics["loss"] = avg_loss
 
-    def get_all_participant_ids(self, poses_data: List[dict]) -> List[int]:
-        '''
-        Function retrieves the unique participant IDs from a pose list read from a .json file.
+    return avg_metrics, all_metrics
 
-        :param poses_data: The list of orientation frame data as read from an orientation .json file.
-                    As read by, e.g., self.load_speech_transcriptions()
 
-        :returns: A list with the unique participants ID in the list of frames.
-        '''
-        #Get unique participant IDs from poses data
-        return sorted(list(set(
-            part["Participant_ID"]
-            for frame in poses_data
-            for part in frame["Participants"]
-        )))
+def load_checkpoint(
+    model: torch.nn.Module,
+    checkpoint_path: str,
+    device: torch.device,
+    optimizer: torch.optim.Optimizer = None,
+) -> Dict[str, Any]:
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
+    model.load_state_dict(checkpoint["model_state_dict"])
+    epoch_checkpoint = checkpoint["epoch"]
+    # history_checkpoint = checkpoint['history']
 
-    def create_speech_lookup(self, transcription_data: Optional[List[dict]],
-                           n_frames: int) -> Dict[int, List[bool]]:
-        '''
-        Function return a lookup dictionary that looks like:
-            lookup[participant_id][frame_id] = True if participant participant_id talks/is active in frame_id
-                                             = False if participant participant_id does not talk/is not active in frame_id
+    if optimizer is not None:
+        optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
 
-            Note that the lookup works even if a participant_id is not in a wave-file - it will always return False!
+    print(f" Loaded checkpoint from epoch {epoch_checkpoint + 1}")
+    print(f" Validation loss: {checkpoint['val_loss']:.6f}")
 
-        Use with, e.g., doesParticipantTalkInFrame(lookup, 2, 119).
-
-        :param transcription_data: Dictionary of transcription data. See load_speech_transcriptions().
-        :param n_frames: Number of frames in the current transcription data.
-
-        :returns: a defaultdict as a lookup table of booleans where you can fastly query whether a participant ID talked in a frame.
-                Use, e.g., doesParticipantTalkInFrame() helper function.
-        '''
-        #lookup for when participants speak.
-
-        # Factory method: whenever a new Participant_ID is seen, it will create a fresh list of
-        #  length expected_N_frames_head_tracking+1 (so indices go from 0 to expected_N_frames_head_tracking)
-        #  filled with False:
-        lookup = defaultdict(lambda: [False] * n_frames)
-
-        if transcription_data is None:
-            raise ValueError("create_speech_lookup() ERROR: Transcription data not intialized!")
-
-        for segment in transcription_data:
-            pid = segment["Participant_ID"]
-            # Python index starts at 0, seems that .json index starts at 1:
-            start = segment["Start_Frame"] - 1
-            end = segment["End_Frame"] - 1
-            assert(end<=n_frames and start>=0) # Negligible perf effects
-            lookup[pid][start:end] = [True] * (end - start)
-
-        return lookup
-
-    def print_stats(self):
-        print(f"  Audio loading: {self.stats['success']} success, {self.stats['failed']} failed")
+    return checkpoint
