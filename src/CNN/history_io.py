@@ -23,20 +23,23 @@ import logging
 
 from src.CNN import config
 from src.CNN.cnn_model import CNNModelParams
+from src.CNN.cnn_2d_model import CNNModel2DParams
+from typing import Union
 
 
 def load_model_configs_from_json(
     json_filepath: str,
     cnn_src_dir: Optional[Path] = None,
     logger: Optional[logging.Logger] = None
-) -> List[CNNModelParams]:
+) -> List[Union[CNNModelParams, CNNModel2DParams]]:
     """
-    Load model configurations from a JSON file and return a list of CNNModelParams objects.
+    Load model configurations from a JSON file and return a list of CNNModelParams or CNNModel2DParams objects.
 
     This function reads a JSON file containing model configurations and creates
-    CNNModelParams objects for each model. The function is designed to be extensible:
-    if new parameters are added to CNNModelParams, they only need to be added to the
-    JSON file - no changes to this function are required.
+    CNNModelParams (1D) or CNNModel2DParams (2D) objects for each model, automatically 
+    detecting the type based on the presence of 'input_height' field. The function is 
+    designed to be extensible: if new parameters are added to either class, they only 
+    need to be added to the JSON file - no changes to this function are required.
 
     Parameters
     ----------
@@ -119,7 +122,7 @@ def load_model_configs_from_json(
     - The function uses CNNModelParams.from_dict() for object creation, making it
       automatically compatible with any new fields added to CNNModelParams.
     - Models are validated using CNNModelParams.checkInternalConsistency() when
-      they are later used in create_model().
+      they are later used in create_1d_cnn_model().
     - If a model configuration is missing required fields, from_dict() will raise
       a clear error indicating which fields are missing.
     """
@@ -163,14 +166,18 @@ def load_model_configs_from_json(
             f"'models' key must contain a list, got {type(data['models']).__name__}"
         )
 
-    # Create CNNModelParams objects
+    # Create CNNModelParams or CNNModel2DParams objects based on presence of input_height
     model_params_list = []
 
     for idx, model_dict in enumerate(data['models']):
         try:
-            # Use from_dict() - this automatically handles any new fields
-            # added to CNNModelParams without needing changes to this function
-            model_params = CNNModelParams.from_dict(model_dict)
+            # Determine model type based on presence of input_height field
+            # If input_height is present, it's a 2D model; otherwise, it's a 1D model
+            if 'input_height' in model_dict:
+                model_params = CNNModel2DParams.from_dict(model_dict)
+            else:
+                model_params = CNNModelParams.from_dict(model_dict)
+            
             model_params_list.append(model_params)
 
         except TypeError as e:
@@ -194,7 +201,7 @@ def save_evaluation_results(
     history_data: Dict[str, np.ndarray],
     avg_metrics: Dict[str, float],
     filename: str,
-    model_params: Optional[CNNModelParams] = None,
+    model_params: Optional[Union[CNNModelParams, CNNModel2DParams]] = None,
     training_results_dir: Optional[Path] = None,
     metadata: Optional[Dict[str, Any]] = None,
     logger: Optional[logging.Logger] = None
@@ -359,7 +366,7 @@ def load_evaluation_results(
     filename: str,
     training_results_dir: Optional[Path] = None,
     logger: Optional[logging.Logger] = None
-) -> Tuple[Dict[str, np.ndarray], Dict[str, float], Dict[str, Any], Optional[CNNModelParams]]:
+) -> Tuple[Dict[str, np.ndarray], Dict[str, float], Dict[str, Any], Optional[Union[CNNModelParams, CNNModel2DParams]]]:
     """
     Load evaluation results from an HDF5 file.
 
@@ -461,8 +468,11 @@ def load_evaluation_results(
 
                 params_dict[key] = value
 
-            # Create CNNModelParams from dict
-            model_params = CNNModelParams.from_dict(params_dict)
+            # Create CNNModelParams or CNNModel2DParams from dict based on presence of input_height
+            if 'input_height' in params_dict:
+                model_params = CNNModel2DParams.from_dict(params_dict)
+            else:
+                model_params = CNNModelParams.from_dict(params_dict)
 
     load_msg = (
         f"  Loaded evaluation results from: {filepath}\n"
