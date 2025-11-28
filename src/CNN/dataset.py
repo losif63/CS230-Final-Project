@@ -56,6 +56,7 @@ class AudioPoseDataset(Dataset):
         array_wearer_id: int = 2,
         cache_filename: str = None,
         output_dim: int = 7,
+        apply_mag_and_gd: bool = False,
         logger: Optional[logging.Logger] = None,
     ):
         """
@@ -69,6 +70,7 @@ class AudioPoseDataset(Dataset):
             array_wearer_id: Participant ID of glasses wearer
             cache_filename: String - if not None, the dataset is cached to/from an .hdf5 file.
             output_dim: Output dimension (3=position only, 4=rotation only, 7=full 6DOF)
+            apply_mag_and_phase: If True, apply log-magnitude and group-delay to the audio data
             logger: Logger instance for debug-level logging
         """
         self.use_channels = use_channels
@@ -88,6 +90,7 @@ class AudioPoseDataset(Dataset):
         self.session_ids = session_ids
         self.samples = []
         self.cache_filename = Path(cache_filename).stem
+        self.apply_mag_and_gd = apply_mag_and_gd
 
         self._load_cached_dataset()
 
@@ -303,12 +306,89 @@ class AudioPoseDataset(Dataset):
         self.loader.print_stats()
         return audio_arrays_sessions, wearer_pose_arrays_sessions, session_ids
 
+    def _apply_fft_transform(self, audio: np.ndarray) -> np.ndarray:
+        """
+        Transform raw audio (6, 2400) to FFT magnitude in dB scale (6, 2, freq_bins).
+
+        Normalizes magnitude to [-1, 1] range where:
+        - -1.0 represents silence/low energy (-80 dB)
+        - 1.0 represents high energy (+20 dB)
+
+        Returns
+        -------
+        np.ndarray
+            Shape (6, 2, freq_bins) where dim 1 contains [mag_db_normalized, mag_db_normalized]
+
+        Notes
+        -----
+        FFT magnitude dB scale is different from waveform dB:
+        - FFT magnitudes can exceed 0 dB (unlike normalized waveforms)
+        - Typical range for this dataset: -80 dB (silence) to +20 dB (strong frequency component)
+        - Total range: 100 dB
+        """
+        N_taps = audio.shape[1]
+        N_channels = audio.shape[0]
+        # Compute FFT (rfft for real signals - more efficient)
+        fft_result = np.fft.rfft(audio, axis=-1)  # (6, freq_bins)
+
+        # Magnitude in dB scale
+        mag_db = 20 * np.log10(np.abs(fft_result) + 1e-10)
+
+        # Clip to observed data range: -80 dB (silence) to +20 dB (strong components)
+        # This is a 100 dB range, typical for our dataset:
+        mag_db = np.clip(mag_db, -80.0, 25.0)
+
+        # Normalize to [-1, 1] range
+        # Maps: -80 dB -> -1.0, +25 dB -> 1.0
+        mag_db_normalized = 2.0 * ((mag_db + 80.0) / 105.0) - 1.0
+
+        # Get group delay:
+        dT = 1.0 / self.loader.FS_AUDIO
+        time_vector = np.arange(N_taps) * dT  # Shape: (2400,)
+
+        # Broadcast time_vector to multiply with each channel
+        # time_vector needs shape (1, 2400) to broadcast with audio (6, 2400)
+        time_vector_broadcast = time_vector[np.newaxis, :]  # Shape: (1, 2400)
+
+        # Now multiply: (1, 2400) * (6, 2400) -> (6, 2400)
+        group_delay_seconds = np.real(
+            np.fft.rfft(time_vector_broadcast * audio, axis=-1) / fft_result
+        )
+        gp_delay_channel_1 = np.real(
+            np.fft.rfft(time_vector * audio[3, :]) / np.fft.rfft(audio[3, :])
+        )
+        assert np.all(group_delay_seconds[3, :] == gp_delay_channel_1)
+        # Clip and normalize to [-1, 1] range:
+        frame_size_seconds = N_taps * dT
+        group_delay_seconds = np.clip(
+            group_delay_seconds, -3.0 * frame_size_seconds, 3.0 * frame_size_seconds
+        )
+        group_delay_normalized = group_delay_seconds / (3.0 * frame_size_seconds)
+
+        # Duplicate magnitude to maintain (6, 2, freq_bins) shape
+        # Both channels contain the same dB magnitude data
+        output = np.stack(
+            [mag_db_normalized, group_delay_normalized], axis=1
+        )  # (6, 2, freq_bins)
+
+        # Option B: Magnitude + Phase
+        # magnitude = np.abs(fft_result)
+        # phase = np.angle(fft_result)
+        # output = np.stack([magnitude, phase], axis=1)
+
+        return output.astype(np.float32)
+
     def __len__(self) -> int:
         assert self.all_audio_frames.shape[0] == self.all_wearer_pose_6dof.shape[0]
         return len(self.all_audio_frames)
 
     def __getitem__(self, idx: int):
-        audio_tensor = torch.from_numpy(self.all_audio_frames[idx, :, :])
+        # Option 1: Compute on-the-fly (for now)
+        if self.apply_mag_and_gd:
+            audio = self._apply_fft_transform(self.all_audio_frames[idx, :, :])
+        else:
+            audio = self.all_audio_frames[idx, :, :]
+        audio_tensor = torch.from_numpy(audio)
         full_pose = self.all_wearer_pose_6dof[idx, :]
 
         if self.output_dim == 3:
@@ -324,6 +404,7 @@ class AudioPoseDataset(Dataset):
 def create_dataloaders(
     config: src.baseline.config.Config,
     output_dim: int = 7,
+    apply_mag_and_gd: bool = False,
     logger: Optional[logging.Logger] = None,
 ):
     """
@@ -333,6 +414,8 @@ def create_dataloaders(
     ----------
     config : Config
         Configuration object with dataset parameters
+    apply_mag_and_gd: bool
+        If True, apply log-magnitude and group-delay to the audio data
     output_dim : int
         Output dimension (3=position only, 4=rotation only, 7=full 6DOF). Note the data written in cached files in AudioPoseDataset() stores all 7 values!
     logger : logging.Logger, optional
@@ -359,6 +442,7 @@ def create_dataloaders(
         array_wearer_id=config.ARRAY_WEARER_ID,
         cache_filename=config.TRAIN_CACHE_FN,
         output_dim=output_dim,
+        apply_mag_and_gd=apply_mag_and_gd,
         logger=logger,
     )
     end = time.perf_counter()
@@ -382,6 +466,7 @@ def create_dataloaders(
         array_wearer_id=config.ARRAY_WEARER_ID,
         cache_filename=config.VAL_CACHE_FN,
         output_dim=output_dim,
+        apply_mag_and_gd=apply_mag_and_gd,
         logger=logger,
     )
 
@@ -398,6 +483,7 @@ def create_dataloaders(
         array_wearer_id=config.ARRAY_WEARER_ID,
         cache_filename=config.TEST_CACHE_FN,
         output_dim=output_dim,
+        apply_mag_and_gd=apply_mag_and_gd,
         logger=logger,
     )
 
