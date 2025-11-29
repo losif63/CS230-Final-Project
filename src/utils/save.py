@@ -28,13 +28,16 @@ def plot_training_curves(train_losses, dev_losses, save_path="training_curves.pn
     plt.close()
 
 
-def save_training_history(train_losses, dev_losses, dev_positional_errors, dev_angular_errors, 
+def save_training_history(train_losses, dev_losses, train_positional_errors, train_angular_errors, 
+                         dev_positional_errors, dev_angular_errors, 
                          test_metrics, save_path="training_history.json"):
     """Save training history to JSON file.
     
     Args:
         train_losses: List of training losses per epoch
         dev_losses: List of validation losses per epoch
+        train_positional_errors: List of train positional errors per epoch
+        train_angular_errors: List of train angular errors per epoch
         dev_positional_errors: List of validation positional errors per epoch
         dev_angular_errors: List of validation angular errors per epoch
         test_metrics: Dictionary with test set metrics
@@ -43,6 +46,8 @@ def save_training_history(train_losses, dev_losses, dev_positional_errors, dev_a
     history = {
         "train_losses": train_losses,
         "dev_losses": dev_losses,
+        "train_positional_errors": train_positional_errors,
+        "train_angular_errors": train_angular_errors,
         "dev_positional_errors": dev_positional_errors,
         "dev_angular_errors": dev_angular_errors,
         "test_loss": test_metrics['loss'],

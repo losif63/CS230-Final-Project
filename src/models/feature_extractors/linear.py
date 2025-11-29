@@ -9,8 +9,8 @@ class LinearExtractor(nn.Module):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.linear = nn.Linear(self.input_dim, self.hidden_dim, bias=False)
-        self.batch_norm = nn.BatchNorm1d(num_features=self.hidden_dim)
+        self.layer_norm = nn.LayerNorm(self.hidden_dim)
     
     def forward(self, x):
         x = self.linear(x)
-        return self.batch_norm(x)
+        return self.layer_norm(x)
