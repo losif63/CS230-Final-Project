@@ -2,4 +2,4 @@ data/**
 **pycache**
 .DS_Store
 wandb/**
-runs/**
+runs**/**
