@@ -48,7 +48,7 @@ def main():
     )
     
     plot_training_history(history, save_path='training_results.png')
-    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'best_model.pth')
+    checkpoint_path = os.path.join(Config.CHECKPOINT_DIR, 'best_crnn_model.pth')
     load_checkpoint(model, checkpoint_path, Config.DEVICE)
     
     test_metrics = evaluate(model, test_loader, criterion, Config.DEVICE)
