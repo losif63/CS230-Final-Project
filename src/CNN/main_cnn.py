@@ -244,7 +244,7 @@ def train_single_model_wrapper(args_tuple):
     Parameters
     ----------
     args_tuple : tuple
-        Tuple of (model_params, device_str, model_index, total_models, log_mode, apply_mag_and_gd)
+        Tuple of (model_params, device_str, model_index, total_models, log_mode, apply_mag_and_gd, apply_spectograms_params, auto_adjust_model_height)
 
     Returns
     -------
@@ -252,7 +252,7 @@ def train_single_model_wrapper(args_tuple):
         Dictionary with training results and status
     """
     start = time.perf_counter()
-    model_params, device_str, model_index, total_models, log_mode, apply_mag_and_gd = (
+    (model_params, device_str, model_index, total_models, log_mode, apply_mag_and_gd, apply_spectograms_params, auto_adjust_model_height) = (
         args_tuple
     )
 
@@ -267,6 +267,8 @@ def train_single_model_wrapper(args_tuple):
             f"\n{'='*80}"
             + f"\nTraining Model {model_index + 1}/{total_models}: {model_params.model_name}"
             + f"\n \tAssigned to device: {device_str}"
+            + f"\n \tApply Mag and Phase: {apply_mag_and_gd}"
+            + f"\n \tApply Spectogram: {apply_spectograms_params}"
             + f"\n{'='*80}\n"
         )
 
@@ -275,6 +277,9 @@ def train_single_model_wrapper(args_tuple):
             model_params=model_params,
             specific_torch_device=device_str,
             apply_mag_and_gd=apply_mag_and_gd,
+            apply_spectograms_params=apply_spectograms_params,
+            auto_adjust_model_height=auto_adjust_model_height,
+            is_parallel_training=True,  # CRITICAL: Use less workers to avoid process explosion
             logger=model_logger,
         )
 
@@ -303,95 +308,60 @@ def train_single_model_wrapper(args_tuple):
             "device": device_str,
         }
 
+def validate_inputs(apply_mag_and_gd, apply_spectograms_params, model_params):
+    if apply_mag_and_gd and apply_spectograms_params is not None:
+        raise ValueError(
+            "Only one of apply_mag_and_gd and apply_spectograms_params can be set!"
+        )
 
-def train_test_model(
-    model_params: Union[cnn_model.CNNModelParams, cnn_2d_model.CNNModel2DParams],
-    specific_torch_device=None,
-    apply_mag_and_gd: bool = False,
-    logger: Optional[logging.Logger] = None,
-):
-    """
-    Train and test a CNN model.
-
-    Parameters
-    ----------
-    model_params : Union[CNNModelParams, CNNModel2DParams]
-        Model parameters - use CNNModelParams for 1D models, CNNModel2DParams for 2D models
-    specific_torch_device : torch.device, optional
-        Specific device to use for training
-    apply_mag_and_gd: bool
-        If True, apply log-magnitude and group delay the input data. Also use a 2D CNN model.
-        When True, model_params should be CNNModel2DParams. When False, should be CNNModelParams.
-    logger : logging.Logger, optional
-        Logger instance for logging progress
-    """
-    if specific_torch_device is not None:
-        config.Config.DEVICE = specific_torch_device
-    # Set the seed for reproducibility:
-    set_seed(config.Config.SEED)
-    training_results_dir = config.Config.TRAINING_RESUTLS_DIR
-
-    # Validate model_params type matches apply_mag_and_gd setting
-    if apply_mag_and_gd and not isinstance(model_params, cnn_2d_model.CNNModel2DParams):
+    # Validate model_params type matches apply_mag_and_gd or apply_spectograms_params setting
+    if (apply_mag_and_gd or apply_spectograms_params is not None) and not isinstance(model_params, cnn_2d_model.CNNModel2DParams):
         raise TypeError(
-            f"When apply_mag_and_gd=True, model_params must be CNNModel2DParams, "
+            f"When apply_mag_and_gd=True or apply_spectograms_params is not None, model_params must be CNNModel2DParams, "
             f"got {type(model_params).__name__}"
         )
-    if not apply_mag_and_gd and not isinstance(model_params, cnn_model.CNNModelParams):
+    if not apply_mag_and_gd and apply_spectograms_params is None and not isinstance(model_params, cnn_model.CNNModelParams):
         raise TypeError(
-            f"When apply_mag_and_gd=False, model_params must be CNNModelParams, "
+            f"When apply_mag_and_gd=False and apply_spectograms_params is None, model_params must be CNNModelParams, "
             f"got {type(model_params).__name__}"
         )
 
-    msg = f"  (1) Creating CNN model '{model_params.model_name}'"
-    if logger:
-        logger.info(msg)
-
-    # Create the model from parameters (automatically validates)
-    if apply_mag_and_gd:
-        # Cast to CNNModel2DParams for type checker (already validated above)
-        model_params_2d = cast(cnn_2d_model.CNNModel2DParams, model_params)
-        cnnModel = cnn_2d_model.create_2d_cnn_model(
-            model_params=model_params_2d,
-            config=config.Config,
-            logger=logger,
-        )
-    else:
-        # Cast to CNNModelParams for type checker (already validated above)
-        model_params_1d = cast(cnn_model.CNNModelParams, model_params)
-        cnnModel = cnn_model.create_1d_cnn_model(
-            model_params=model_params_1d,
-            config=config.Config,
-            logger=logger,
-        )
+def test_model_with_torchsummary_and_exit(model_params, cnnModel, apply_mag_and_gd, apply_spectograms_params):
+    print("--------------------------------------------------------------------")
     # #################  Testing: print model summary #################
-    # if apply_mag_and_gd:
-    #     # For 2D CNN: input shape is (6, 2, freq_bins)
-    #     # For 2D models, samples_per_frame already equals freq_bins (1201)
-    #     freq_bins = model_params.samples_per_frame  # Already 1201, don't divide again!
-    #     torchsummary.summary(cnnModel, input_size=(6, 2, freq_bins))
-    # else:
-    #     # For 1D CNN: input shape is (6, samples_per_frame)
-    #     torchsummary.summary(cnnModel, input_size=(6, 2400))
-    # sys.exit()
+    # Move model to CPU for torchsummary to avoid GPU memory issues
+    original_device = next(cnnModel.parameters()).device
+    #cnnModel_cpu = cnnModel.cpu()
+    
+    start_summary = time.perf_counter()
+    if apply_mag_and_gd:
+        # For 2D CNN: input shape is (6, 2, freq_bins)
+        # For 2D models, samples_per_frame already equals freq_bins (1201)
+        freq_bins = model_params.samples_per_frame  # Already 1201, don't divide again!
+        print(f"Input shape for summary: (6, 2, {freq_bins})")
+        torchsummary.summary(cnnModel, input_size=(6, 2, freq_bins))#, device='cpu')
+    elif apply_spectograms_params is not None:
+        freq_bins = dataset.compute_spectogram_freq_bins(apply_spectograms_params=apply_spectograms_params, fs_audio=config.Config.FS_AUDIO, frame_size=config.Config.SAMPLES_PER_FRAME)
+        # Time bins match samples_per_frame from model config (width dimension)
+        time_bins = model_params.samples_per_frame
+        print(f"Input shape for summary SPECTOGRAM (6, freq_bins, time_bins): (6, {freq_bins}, {time_bins})")
+        torchsummary.summary(cnnModel, input_size=(6, freq_bins, time_bins))#, device='cpu')
+    else:
+        # For 1D CNN: input shape is (6, samples_per_frame)
+        print(f"Input shape for summary: (6, 2400)")
+        torchsummary.summary(cnnModel, input_size=(6, 2400))#, device='cpu')
+    
+    summary_time = time.perf_counter() - start_summary
+    print(f"\ntorchsummary completed in {datetime.timedelta(seconds=summary_time)}")
+    
+    # Move model back to original device (GPU)
+    #cnnModel = cnnModel_cpu.to(original_device)
+    print(f"Model moved back to {original_device}")
+    print(f"------------------------------------ done model {cnnModel.model_name}")
+    sys.exit()
 
-    plotting_file = getPlottingFileName(training_results_dir, cnnModel)
-    start = time.perf_counter()
-    train_loader, val_loader, test_loader = dataset.create_dataloaders(
-        config.Config,
-        output_dim=model_params.output_dim,
-        apply_mag_and_gd=apply_mag_and_gd,
-        logger=logger,
-    )
-    end = time.perf_counter()
-
-    data_loading_msg = f"   Data loading took {datetime.timedelta(seconds=end-start)}"
-    if logger:
-        logger.info(data_loading_msg)
-
-    # Assign config values to model_params if they are None (so they get saved to .h5 file)
+def set_and_log_adam_params(model_params, logger):
     log_msgs = ["  (2) Creating ADAM optimizer"]
-
     if model_params.learning_rate is None:
         model_params.learning_rate = config.Config.LEARNING_RATE
         log_msgs.append(
@@ -421,9 +391,114 @@ def train_test_model(
         log_msgs.append(
             f"      Num epochs (training): {model_params.num_epochs} (from model_params)"
         )
-
     if logger:
         logger.info("\n".join(log_msgs))
+
+def train_test_model(
+    model_params: Union[cnn_model.CNNModelParams, cnn_2d_model.CNNModel2DParams],
+    specific_torch_device=None,
+    apply_mag_and_gd: bool = False,
+    apply_spectograms_params: Optional[dict] = None,
+    auto_adjust_model_height: bool = False,
+    is_parallel_training: bool = False,
+    logger: Optional[logging.Logger] = None,
+):
+    """
+    Train and test a CNN model.
+
+    Parameters
+    ----------
+    model_params : Union[CNNModelParams, CNNModel2DParams]
+        Model parameters - use CNNModelParams for 1D models, CNNModel2DParams for 2D models
+    specific_torch_device : torch.device, optional
+        Specific device to use for training
+    apply_mag_and_gd: bool
+        If True, apply log-magnitude and group delay the input data. Also use a 2D CNN model.
+        When True, model_params should be CNNModel2DParams. When False (and apply_spectograms_params is None), should be CNNModelParams.
+    apply_spectograms_params : dict or None
+        If not None, apply spectrograms to the audio data. Also use a 2D CNN model.
+        When not None, model_params should be CNNModel2DParams.
+        Dictionary with keys: "N_window", "hop_size", "apply_positional_encoding"
+    auto_adjust_model_height : bool
+        If True and apply_spectograms_params is set, automatically adjusts model_params.input_height
+        based on the computed frequency bins from the spectrogram parameters.
+        This only applies when using spectrograms (apply_spectograms_params is not None).
+    logger : logging.Logger, optional
+        Logger instance for logging progress
+    """
+    if specific_torch_device is None:
+        specific_torch_device = config.Config.DEVICE
+    # Set the seed for reproducibility:
+    set_seed(config.Config.SEED)
+    training_results_dir = config.Config.TRAINING_RESUTLS_DIR
+
+    # Validate that only one of apply_mag_and_gd and apply_spectograms_params is set
+    validate_inputs(apply_mag_and_gd, apply_spectograms_params, model_params)
+
+    msg = f"  (1) Creating CNN model '{model_params.model_name}'"
+    if logger:
+        logger.info(msg)
+        logger.info(f"      Configuration: BATCH_SIZE={config.Config.BATCH_SIZE}, NUM_WORKERS={'PARALLEL' if is_parallel_training else 'SEQUENTIAL'}={config.Config.NUM_WORKERS_PARALLEL if is_parallel_training else config.Config.NUM_WORKERS_SEQUENTIAL}")
+
+    # Create the model from parameters (automatically validates)
+    if apply_mag_and_gd or apply_spectograms_params is not None:
+        # Cast to CNNModel2DParams for type checker (already validated above)
+        model_params_2d = cast(cnn_2d_model.CNNModel2DParams, model_params)
+        
+        # Auto-adjust model height if requested
+        if auto_adjust_model_height and apply_spectograms_params is not None:
+            # Compute the frequency bins based on spectrogram parameters
+            freq_bins = dataset.compute_spectogram_freq_bins(
+                apply_spectograms_params=apply_spectograms_params,
+                fs_audio=config.Config.FS_AUDIO,
+                frame_size=config.Config.SAMPLES_PER_FRAME,
+            )
+            
+            # Update the input_height
+            original_height = model_params_2d.input_height
+            model_params_2d.input_height = freq_bins
+            
+            if logger:
+                logger.info(
+                    f"Auto-adjusted 2D CNN model input_height: {original_height} -> {freq_bins} "
+                    f"(based on spectrogram parameters N_window = {apply_spectograms_params['N_window']} and hop_size = {apply_spectograms_params['hop_size']})"
+                )
+        
+        cnnModel = cnn_2d_model.create_2d_cnn_model(
+            model_params=model_params_2d,
+            device=specific_torch_device,
+            logger=logger,
+        )
+    else:
+        # Cast to CNNModelParams for type checker (already validated above)
+        model_params_1d = cast(cnn_model.CNNModelParams, model_params)
+        cnnModel = cnn_model.create_1d_cnn_model(
+            model_params=model_params_1d,
+            device=specific_torch_device,
+            logger=logger,
+    )
+    ######################################## Test model with torchsummary ########################################
+    # test_model_with_torchsummary_and_exit(model_params, cnnModel, apply_mag_and_gd, apply_spectograms_params)
+    ##############################################################################################################
+
+    plotting_file = getPlottingFileName(training_results_dir, cnnModel)
+    start = time.perf_counter()
+    train_loader, val_loader, test_loader = dataset.create_dataloaders(
+        config.Config,
+        output_dim=model_params.output_dim,
+        apply_mag_and_gd=apply_mag_and_gd,
+        apply_spectograms_params=apply_spectograms_params,
+        is_parallel_training=is_parallel_training,
+        logger=logger,
+    )
+    end = time.perf_counter()
+
+    data_loading_msg = f"   Data loading took {datetime.timedelta(seconds=end-start)}"
+    if logger:
+        logger.info(data_loading_msg)
+
+    # Assign config values to model_params if they are None (so they get saved to .h5 file)
+    set_and_log_adam_params(model_params, logger)    
 
     optimizer = torch.optim.Adam(
         cnnModel.parameters(),
@@ -438,6 +513,22 @@ def train_test_model(
         logger.info(training_start_msg)
 
     start = time.perf_counter()
+
+    gpu_stft_params = None
+    if apply_spectograms_params is not None and "compute_on_gpu" in apply_spectograms_params and apply_spectograms_params["compute_on_gpu"]:
+        # IMPORTANT: samples_per_frame for GPU STFT must be actual audio samples, not freq bins!
+        # Compute from audio sampling rate and head tracking rate
+        actual_samples_per_frame = int(config.Config.FS_AUDIO / config.Config.FS_HEAD_TRACKING)
+        
+        gpu_stft_params = dataset.create_gpu_stft_params(
+            n_window=apply_spectograms_params["N_window"],
+            hop_size=apply_spectograms_params["hop_size"],
+            samples_per_frame=actual_samples_per_frame,  # Use actual audio samples (2400), not model's freq bins
+            n_channels=model_params.n_channels,
+            apply_positional_encoding=apply_spectograms_params["apply_positional_encoding"],
+            device=specific_torch_device,
+        )
+
     history = train.train_model(
         model=cnnModel,
         train_loader=train_loader,
@@ -445,9 +536,10 @@ def train_test_model(
         lossFunction=metrics.pose_6dof_loss,
         optimizer=optimizer,
         num_epochs=model_params.num_epochs,
-        device=config.Config.DEVICE,
+        device=specific_torch_device,
         save_dir=str(config.Config.CHECKPOINT_DIR),
         logger=logger,
+        gpu_stft_params=gpu_stft_params,
     )
 
     training_done_msg = f"      DONE TRAINING - took {datetime.timedelta(seconds=time.perf_counter()-start)}"
@@ -468,15 +560,17 @@ def train_test_model(
     # ############################################
     # Testing on test set (+ writing .hdf5 file):
     # ############################################
+    print(f"\n\nDEBUG -- testing evaluate_per_samples directly...\n\n")
     test_avg_metrics, test_all_metrics_per_sample = train.evaluate_per_samples(
         cnnModel,
         test_loader,
         metrics.pose_6dof_loss,
-        config.Config.DEVICE,
+        specific_torch_device,
         evalTest=True,
         logger=logger,
+        gpu_stft_params=gpu_stft_params,
     )
-    testing_msg = "  (6) Writing test results to filem and reloading..."
+    testing_msg = "  (6) Writing test results to file and reloading..."
     if logger:
         logger.info(testing_msg)
     # Save with model parameters and metadata
@@ -529,9 +623,11 @@ def train_test_model(
 def launch_parallel_training(
     main_log_filename="MAIN_PARALLEL_TRAINING",
     model_list_file: Optional[str] = None,
-    log_mode=LogMode.BOTH,
+    log_mode=LogMode.BOTH, # Change to FILE_ONLY or TERMINAL_ONLY as needed
     apply_mag_and_gd: bool = False,
-):  # Change to FILE_ONLY or TERMINAL_ONLY as needed
+    apply_spectograms_params: Optional[dict] = None,
+    auto_adjust_model_height: bool = False,
+):  
     """
     Launch parallel training of multiple models on available GPUs.
 
@@ -545,10 +641,16 @@ def launch_parallel_training(
         Logging mode (FILE_ONLY, TERMINAL_ONLY, or BOTH)
     apply_mag_and_gd : bool
         If True, apply log-magnitude and group delay to input data and use 2D CNN models
+    apply_spectograms_params : dict or None
+        If not None, apply spectrograms to the audio data and use 2D CNN models.
+        Dictionary with keys: "N_window", "hop_size", "apply_positional_encoding"
+    auto_adjust_model_height : bool
+        If True and apply_spectograms_params is set, automatically adjusts model input_height
+        based on the computed frequency bins from the spectrogram parameters.
     """
     # Set default value inside function to avoid module initialization issues
     if model_list_file is None:
-        if apply_mag_and_gd:
+        if apply_mag_and_gd or apply_spectograms_params is not None:
             model_list_file = config.Config.MODEL_2D_LIST_FILE
         else:
             model_list_file = config.Config.MODEL_LIST_FILE
@@ -558,6 +660,14 @@ def launch_parallel_training(
     logger = setup_logger(
         log_filename=main_log_filename, mode=log_mode, level=logging.DEBUG
     )
+    
+    # Log BATCH_SIZE at the start
+    logger.info(f"\n{'='*80}")
+    logger.info(f"  Configuration:")
+    logger.info(f"    BATCH_SIZE: {config.Config.BATCH_SIZE}")
+    logger.info(f"    NUM_WORKERS_PARALLEL: {config.Config.NUM_WORKERS_PARALLEL}")
+    logger.info(f"{'='*80}\n")
+    
     # Set multiprocessing start method to 'spawn' for CUDA compatibility
     # This is required for CUDA on Linux/Unix systems. Windows uses 'spawn' by default.
     try:
@@ -577,6 +687,8 @@ def launch_parallel_training(
 
     if len(available_GPU_devices) == 0:
         error_msg = "No available GPU devices found. Please check"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
     # Calculate maximum parallel models based on GPUs and trainings per GPU
     trainings_per_gpu = config.Config.TRAININGS_PER_GPU
     assignment_strategy = config.Config.GPU_ASSIGNMENT_STRATEGY
@@ -608,6 +720,8 @@ def launch_parallel_training(
                     len(model_params_list),
                     log_mode,
                     apply_mag_and_gd,
+                    apply_spectograms_params,
+                    auto_adjust_model_height,
                 )
             )
 
@@ -627,6 +741,8 @@ def launch_parallel_training(
                     len(model_params_list),
                     log_mode,
                     apply_mag_and_gd,
+                    apply_spectograms_params,
+                    auto_adjust_model_height,
                 )
             )
 
@@ -638,12 +754,8 @@ def launch_parallel_training(
     # Log GPU assignment plan
     logger.info("GPU Assignment Plan:")
     for gpu_idx, device_str in enumerate(available_GPU_devices):
-        assigned_models = [
-            f"{args[0].model_name}" for args in training_args if args[1] == device_str
-        ]
-        logger.info(
-            f"  {device_str}: {len(assigned_models)} models - {assigned_models}"
-        )
+        assigned_models = [f"{args[0].model_name}" for args in training_args if args[1] == device_str]
+        logger.info(f"  {device_str}: {len(assigned_models)} models - {assigned_models}")
     logger.info("")
 
     # Train models in parallel using ProcessPoolExecutor
@@ -705,8 +817,26 @@ def launch_parallel_training(
 
 
 def launch_single_simple_model_training(
-    log_mode=LogMode.BOTH, apply_mag_and_gd: bool = False
+    log_mode=LogMode.BOTH, apply_mag_and_gd: bool = False, 
+    apply_spectograms_params: Optional[dict] = None, 
+    auto_adjust_model_height: bool = False
 ):
+    """
+    Train a single simple test model.
+
+    Parameters
+    ----------
+    log_mode : LogMode
+        Logging mode (FILE_ONLY, TERMINAL_ONLY, or BOTH)
+    apply_mag_and_gd : bool
+        If True, apply log-magnitude and group delay to input data and use 2D CNN models
+    apply_spectograms_params : dict or None
+        If not None, apply spectrograms to the audio data and use 2D CNN models.
+        Dictionary with keys: "N_window", "hop_size", "apply_positional_encoding"
+    auto_adjust_model_height : bool
+        If True and apply_spectograms_params is set, automatically adjusts model input_height
+        based on the computed frequency bins from the spectrogram parameters.
+    """
     logger = setup_logger(
         log_filename="cnn_training",
         mode=log_mode,  # Change to FILE_ONLY or TERMINAL_ONLY as needed
@@ -719,61 +849,55 @@ def launch_single_simple_model_training(
 
     if apply_mag_and_gd:
         # For 2D model with FFT input: samples_per_frame should be freq_bins, not raw samples
-        freq_bins = 2400 // 2 + 1  # = 1201 for rfft
-        simple_model_params = cnn_2d_model.CNNModel2DParams(
-            model_name="first_test_2d",
+        freq_bins = 2400
+        selected_model_params = cnn_2d_model.CNNModel2DParams(
+            model_name="first_test_2d_mag_and_gd",
             n_channels=6,
             samples_per_frame=freq_bins,  # Use freq_bins, not 2400!
             input_height=2,  # 2D input: (6, 2, freq_bins) - 2 features (magnitude + group delay)
-            cnn_num_filter_list=[
-                4,
-                4,
-                4,
-            ],  # [64, 128, 256, 256], #same as output channels
+            cnn_num_filter_list=[4, 4, 4,],  # [64, 128, 256, 256], #same as output channels
             # For 2D CNN: all sizes are (height, width) tuples
             # Keep height=1 throughout to preserve the 2 feature channels
-            cnn_filter_size_list=[
-                (1, 10),  # Height=1 to keep both features, width=10 for frequency
-                (1, 8),
-                (1, 4),
-            ],
-            cnn_stride_list=[
-                (1, 1),  # Height=1 to preserve both feature channels
-                (1, 2),
-                (1, 2),
-            ],
-            cnn_padding_list=[
-                (0, 0),  # No padding
-                (0, 0),
-                (0, 0),
-            ],
-            max_pool_filter_size_list=[
-                (1, 2),  # Height=1 to keep both features, pool along frequency
-                (1, 4),
-                (1, 6),
-            ],
-            max_pool_stride_size_list=[
-                (1, 2),  # Same as pool size
-                (1, 4),
-                (1, 6),
-            ],
+            cnn_filter_size_list=[(1, 10), (1, 8), (1, 4),], # Height=1 to keep both features, width=10 for frequency 
+            cnn_stride_list=[(1, 1),  (1, 2), (1, 2), ],  # Height=1 to preserve both feature channels
+            cnn_padding_list=[(0, 0), (0, 0), (0, 0), ], # No padding
+            max_pool_filter_size_list=[(1, 2), (1, 4), (1, 6), ], # Height=1 to keep both features, pool along frequency
+            max_pool_stride_size_list=[(1, 2), (1, 4), (1, 6), ], # Same as pool size
             FC_hidden_dims=[10],  # [512, 256, 128],
-            output_dim=3,
+            output_dim=7,
+            num_epochs=10,
+            learning_rate=1e-4,
+            weight_decay=1e-5,
+            dropout=0.3,
+        )
+    elif apply_spectograms_params is not None:
+        freq_bins = 2400 // 2 + 1  # = 1201 for rfft
+        selected_model_params = cnn_2d_model.CNNModel2DParams(
+            model_name="first_test_spectogram",
+            n_channels=6,
+            samples_per_frame=freq_bins,  # Use freq_bins, not 2400!
+            input_height=2,  # 2D input: (6, 2, freq_bins) - 2 features (magnitude + group delay)
+            cnn_num_filter_list=[4, 4, 4],  # [64, 128, 256, 256], #same as output channels
+            # For 2D CNN: all sizes are (height, width) tuples
+            # Keep height=1 throughout to preserve the 2 feature channels
+            cnn_filter_size_list=[(5, 5), (5, 5), (5, 5),], # Height=1 to keep both features, width=10 for frequency 
+            cnn_stride_list=[(1, 1),  (2, 2), (2, 2)],  # Height=1 to preserve both feature channels
+            cnn_padding_list=[(0, 0), (0, 0), (0, 0), ], # No padding
+            max_pool_filter_size_list=[(1, 2), (4, 4), (6, 6), ], # Height=1 to keep both features, pool along frequency
+            max_pool_stride_size_list=[(1, 2), (4, 4), (6, 6), ], # Same as pool size
+            FC_hidden_dims=[10],  # [512, 256, 128],
+            output_dim=7,
             num_epochs=10,
             learning_rate=1e-4,
             weight_decay=1e-5,
             dropout=0.3,
         )
     else:
-        simple_model_params = cnn_model.CNNModelParams(
+        selected_model_params = cnn_model.CNNModelParams(
             model_name="first_test",
             n_channels=6,
             samples_per_frame=2400,
-            cnn_num_filter_list=[
-                4,
-                4,
-                4,
-            ],  # [64, 128, 256, 256], #same as output channels
+            cnn_num_filter_list=[4, 4, 4,],  # [64, 128, 256, 256], #same as output channels
             cnn_filter_size_list=[10, 8, 4],  # [128, 128, 64, 8],
             cnn_stride_list=[1, 2, 2],  # [1, 1, 1, 1],
             cnn_padding_list=[0, 0, 0],  # [0, 0, 0, 0],
@@ -786,14 +910,28 @@ def launch_single_simple_model_training(
             weight_decay=1e-5,
             dropout=0.3,
         )
-
-    model_params_list = history_io.load_model_configs_from_json(
-        config.Config.MODEL_2D_LIST_FILE, logger=logger
-    )
+    # # USE THIS WHEN YOU WANT TO TEST MODEL CONFIGS FROM JSON FILE:
+    # ##############################################################
+    # model_params_list = history_io.load_model_configs_from_json(
+    #     config.Config.MODEL_2D_LIST_FILE, logger=logger
+    # )
+    # selected_model_params = model_params_list[26]
+    # ##############################################################
+    # Estimate memory requirements before training
+    memory_estimate_gb = cnn_2d_model.estimate_2d_model_memory(selected_model_params, batch_size=1)
+    logger.info(f"=== Memory Estimate for '{selected_model_params.model_name}': {memory_estimate_gb:.2f} GB (batch_size=1)  ===")
+    if memory_estimate_gb > 5:
+        import warnings
+        warnings.warn(f"WARNING: Model {selected_model_params.model_name} requires >5 GB RAM (Estimated {memory_estimate_gb} GB!). Consider reducing model size!")
+    if memory_estimate_gb > 10:
+        raise ValueError(f"Model {selected_model_params.model_name} size too large! Estimated {memory_estimate_gb} GB!")
+    
     train_test_model(
-        model_params=model_params_list[24],
+        model_params=selected_model_params,
         specific_torch_device=available_GPU_devices[0],
         apply_mag_and_gd=apply_mag_and_gd,
+        apply_spectograms_params=apply_spectograms_params,
+        auto_adjust_model_height=auto_adjust_model_height,
         logger=logger,
     )
 
@@ -801,8 +939,11 @@ def launch_single_simple_model_training(
         f"Main CNN ending OK -={datetime.timedelta(seconds=time.perf_counter()-start)}=-"
     )
 
-
-def launch_sequential_training(log_mode=LogMode.BOTH, apply_mag_and_gd: bool = False):
+def launch_sequential_training(log_mode=LogMode.BOTH, 
+                               apply_mag_and_gd: bool = False, 
+                               apply_spectograms_params: Optional[dict] = None, 
+                               auto_adjust_model_height: bool = False
+    ):
     """
     Function loops through all the models in the model_params_list from the .json file and trains them sequentially
     (one after the other). Equivalent to the parallel training when there is only one GPU available.
@@ -813,6 +954,12 @@ def launch_sequential_training(log_mode=LogMode.BOTH, apply_mag_and_gd: bool = F
         Logging mode (FILE_ONLY, TERMINAL_ONLY, or BOTH)
     apply_mag_and_gd : bool
         If True, apply log-magnitude and group delay to input data and use 2D CNN models
+    apply_spectograms_params : dict or None
+        If not None, apply spectrograms to the audio data and use 2D CNN models.
+        Dictionary with keys: "N_window", "hop_size", "apply_positional_encoding"
+    auto_adjust_model_height : bool
+        If True and apply_spectograms_params is set, automatically adjusts model input_height
+        based on the computed frequency bins from the spectrogram parameters.
     """
     # LogMode.FILE_ONLY: Only write to log file
     # LogMode.TERMINAL_ONLY: Only write to terminal (like print)
@@ -826,8 +973,8 @@ def launch_sequential_training(log_mode=LogMode.BOTH, apply_mag_and_gd: bool = F
     # Get available devices
     available_GPU_devices = get_available_devices(False, logger=logger)
 
-    # Select appropriate config file based on apply_mag_and_gd
-    if apply_mag_and_gd:
+    # Select appropriate config file based on apply_mag_and_gd or apply_spectograms_params
+    if apply_mag_and_gd or apply_spectograms_params is not None:
         model_list_file = config.Config.MODEL_2D_LIST_FILE
     else:
         model_list_file = config.Config.MODEL_LIST_FILE
@@ -850,6 +997,8 @@ def launch_sequential_training(log_mode=LogMode.BOTH, apply_mag_and_gd: bool = F
                 model_params,
                 specific_torch_device=available_GPU_devices[0],
                 apply_mag_and_gd=apply_mag_and_gd,
+                apply_spectograms_params=apply_spectograms_params,
+                auto_adjust_model_height=auto_adjust_model_height,
                 logger=logger,
             )
         except Exception as e:
@@ -857,7 +1006,6 @@ def launch_sequential_training(log_mode=LogMode.BOTH, apply_mag_and_gd: bool = F
             logger.error(error_msg, exc_info=True)
             raise e
     logger.info("Main SEQUENTIAL CNN ending...")
-
 
 if __name__ == "__main__":
     # ========================================================================
@@ -872,15 +1020,18 @@ if __name__ == "__main__":
         if LOG_MODE == LogMode.FILE_ONLY
         else contextmanager(lambda: (yield))()
     )
-
+    apply_spectograms_params_ = {"N_window": 240, "hop_size": 2, "apply_positional_encoding": True,
+                                "compute_on_gpu": True}
     with context_manager:
-        launch_single_simple_model_training(log_mode=LOG_MODE, apply_mag_and_gd=True)
+        launch_single_simple_model_training(log_mode=LOG_MODE, apply_mag_and_gd=False, 
+                                            apply_spectograms_params = apply_spectograms_params_, 
+                                            auto_adjust_model_height = True)
 
     # ===========================================================================
     # Option 2: Multiple models (json), Sequential Training (one model at a time)
     # ===========================================================================
     # with context_manager:
-    #     launch_sequential_training(log_mode=LOG_MODE, apply_mag_and_gd=False)
+    #     launch_sequential_training(log_mode=LOG_MODE, apply_mag_and_gd=False, apply_spectograms_params = None, auto_adjust_model_height = True)
 
     # =======================================================================================================
     # Option 3: Multiple models (json), Parallel Training (train multiple models per GPU, on multiple GPUs)
@@ -889,6 +1040,7 @@ if __name__ == "__main__":
     #     launch_parallel_training(
     #         main_log_filename="2D_MAIN_PARALLEL_TRAINING",
     #         model_list_file=None,  # Change to your own .json file: "model_configs.json" or "2d_model_configs.json". If None, uses default from config.py
-    #         apply_mag_and_gd=True,
+    #         apply_mag_and_gd=False,
+    #         apply_spectograms_params = apply_spectograms_params_, auto_adjust_model_height = True,
     #         log_mode=LOG_MODE,
     #     )
