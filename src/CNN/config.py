@@ -9,7 +9,7 @@ class Config:
     TRAINING_RESUTLS_DIR = Path("./training_results")
     TESTING_RESUTLS_DIR = Path("./testing_results")
     MODEL_LIST_FILE = "model_configs.json"
-    MODEL_2D_LIST_FILE = "2d_model_configs.json"
+    MODEL_2D_LIST_FILE = "2d_model_configs_spectogram_7D_20epochs.json"#"2d_model_configs.json" # For both mag_and_gd and for spectrogram
     FS_AUDIO = 48000
     FS_HEAD_TRACKING = 20.0
     DT_HEAD_TRACKING = 1.0 / FS_HEAD_TRACKING
@@ -41,10 +41,15 @@ class Config:
     NUM_EPOCHS = 10
     LEARNING_RATE = 1e-4
     WEIGHT_DECAY = 1e-5
-    NUM_WORKERS = 0  # For windows, use 0 (does not work). For A100, not a big improvement but 2 is fine...
-
+    
+    # DataLoader worker configuration
+    # CRITICAL: Reduce workers when using parallel training to avoid process explosion!
+    # Rule of thumb: num_workers × num_parallel_processes should be < CPU cores
+    NUM_WORKERS_SEQUENTIAL = 1  # Use when training one model at a time (sequential mode)
+    NUM_WORKERS_PARALLEL = 8    # Use when training multiple models in parallel (A100: 2 (safe), 4 (moderate), 6 (aggresive), 8 (dangerous))
+    
     # Parallel training parameters
-    TRAININGS_PER_GPU = 2  # Number of parallel trainings per GPU (e.g., 2 = train 2 models per GPU simultaneously)
+    TRAININGS_PER_GPU = 1  # Number of parallel trainings per GPU (e.g., 2 = train 2 models per GPU simultaneously)
 
     # GPU assignment strategy for parallel training:
     # - "round_robin": Distributes models evenly across all GPUs (e.g., Model 0→GPU0, Model 1→GPU1, Model 2→GPU2, Model 3→GPU0, ...)
@@ -110,7 +115,8 @@ class Config:
         print(f"  Epochs: {cls.NUM_EPOCHS}")
         print(f"  Learning rate: {cls.LEARNING_RATE}")
         print(f"  Weight decay: {cls.WEIGHT_DECAY}")
-        print(f"  Num workers: {cls.NUM_WORKERS}")
+        print(f"  Num workers (sequential): {cls.NUM_WORKERS_SEQUENTIAL}")
+        print(f"  Num workers (parallel): {cls.NUM_WORKERS_PARALLEL}")
         print(f"\nParallel Training:")
         print(f"  Trainings per GPU: {cls.TRAININGS_PER_GPU}")
         print(f"  GPU assignment strategy: {cls.GPU_ASSIGNMENT_STRATEGY}")
