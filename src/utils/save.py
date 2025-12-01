@@ -30,7 +30,7 @@ def plot_training_curves(train_losses, dev_losses, save_path="training_curves.pn
 
 def save_training_history(train_losses, dev_losses, train_positional_errors, train_angular_errors, 
                          dev_positional_errors, dev_angular_errors, 
-                         test_metrics, save_path="training_history.json"):
+                         train_metrics, dev_metrics, test_metrics, save_path="training_history.json"):
     """Save training history to JSON file.
     
     Args:
@@ -45,14 +45,18 @@ def save_training_history(train_losses, dev_losses, train_positional_errors, tra
     """
     history = {
         "train_losses": train_losses,
-        "dev_losses": dev_losses,
         "train_positional_errors": train_positional_errors,
         "train_angular_errors": train_angular_errors,
+        "dev_losses": dev_losses,
         "dev_positional_errors": dev_positional_errors,
         "dev_angular_errors": dev_angular_errors,
-        "test_loss": test_metrics['loss'],
+        "train_positional_error": train_metrics['positional_error'],
+        "train_angular_error": train_metrics['angular_error'],
+        "dev_positional_error": dev_metrics['positional_error'],
+        "dev_angular_error": dev_metrics['angular_error'],
         "test_positional_error": test_metrics['positional_error'],
         "test_angular_error": test_metrics['angular_error'],
+        "test_loss": test_metrics['loss'],
         "num_epochs": len(train_losses),
         "timestamp": datetime.now().isoformat()
     }

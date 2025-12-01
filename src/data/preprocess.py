@@ -1,29 +1,83 @@
 from pathlib import Path
-import torch, torchaudio, json
-import sys, os
+import os
+import sys
+import json
+from typing import Optional, List, Dict
+from collections import defaultdict
+
+import torch
+import torchaudio
+
 sys.path.append(str(Path(__file__).parent.parent))
 from utils.utilsIO import get_head_tracking_fs
 
 
-def preprocess_pair(wav_path, json_path, participant_id=2):
+def load_speech_transcriptions(
+    speech_dir: Path, session_id: int, wav_path: Path
+) -> Optional[List[dict]]:
+    """Load speech transcription annotations for a wav file."""
+    session_name = f"Session_{session_id}"
+    trans_file = speech_dir / session_name / f"{wav_path.stem}.json"
+    if not trans_file.exists():
+        return None
+    try:
+        with open(trans_file, "r", encoding="latin-1") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Error loading speech transcriptions from {trans_file}: {e}")
+        return None
+
+
+def create_speech_lookup(
+    transcription_data: Optional[List[dict]], n_frames: int
+) -> Dict[int, List[bool]]:
+    """Return lookup indicating when each participant speaks."""
+    lookup = defaultdict(lambda: [False] * n_frames)
+    if transcription_data is None:
+        return lookup
+
+    for segment in transcription_data:
+        pid = segment["Participant_ID"]
+        start = segment["Start_Frame"] - 1
+        end = segment["End_Frame"] - 1
+
+        for frame_idx in range(start, end):
+            if 0 <= frame_idx < n_frames:
+                lookup[pid][frame_idx] = True
+
+    return lookup
+
+
+def get_all_participant_ids(pose_data: List[dict]) -> List[int]:
+    """Collect all participant IDs present in pose annotations."""
+    participants = {
+        participant["Participant_ID"]
+        for frame in pose_data
+        for participant in frame["Participants"]
+    }
+    return sorted(list(participants))
+
+
+def preprocess_pair(
+    wav_path: Path,
+    json_path: Path,
+    speech_dir: Path,
+    session_id: int,
+    participant_id: int = 2,
+    filter_silence: bool = True,
+    pose_norm_threshold: float = 0.1,
+):
     # Read audio
     audio_data, sr = torchaudio.load(wav_path)
     
     # Handle mono vs multi-channel audio
     if len(audio_data.shape) == 1:
-        audio_data.unsqueeze(0)
+        audio_data = audio_data.unsqueeze(0)
     
-    N_channels, N_taps = audio_data.shape
-    t_max = N_taps // sr
+    _, n_samples = audio_data.shape
     dT_head_tracking = get_head_tracking_fs()
-
-    N_frames = int(t_max * dT_head_tracking)
-    N_samples_per_frame = int(sr / dT_head_tracking)
-    
-    # Reshape audio to (frames, channels, samples_per_frame)
-    audio_tensor = torch.stack([
-        audio_data[:, i * N_samples_per_frame:(i+1)*N_samples_per_frame] for i in range(N_frames)
-    ], dim=0)
+    samples_per_frame = int(sr / dT_head_tracking)
+    n_audio_frames = n_samples // samples_per_frame
     
     # Read pose data
     with open(json_path, 'r') as f:
@@ -44,15 +98,49 @@ def preprocess_pair(wav_path, json_path, participant_id=2):
                 pose_tensor[i, 5] = participant["Quaternion_Z"]
                 pose_tensor[i, 6] = participant["Quaternion_W"]
     
-    # Ensure frames match
-    min_frames = min(audio_tensor.shape[0], pose_tensor.shape[0])
-    audio_tensor = audio_tensor[:min_frames, :]
-    pose_tensor = pose_tensor[:min_frames, :]
+    n_pose_frames = pose_tensor.shape[0]
+    max_frames = min(n_audio_frames, n_pose_frames)
+
+    speech_lookup = None
+    participant_ids: List[int] = []
+    if filter_silence:
+        transcription_data = load_speech_transcriptions(speech_dir, session_id, wav_path)
+        speech_lookup = create_speech_lookup(transcription_data, n_pose_frames)
+        participant_ids = get_all_participant_ids(pose_data)
+
+    filtered_audio_frames: List[torch.Tensor] = []
+    filtered_pose_frames: List[torch.Tensor] = []
+
+    for frame_idx in range(max_frames):
+        start_sample = frame_idx * samples_per_frame
+        end_sample = start_sample + samples_per_frame
+
+        if filter_silence and speech_lookup is not None:
+            is_active = any(
+                speech_lookup[pid][frame_idx]
+                for pid in participant_ids
+                if pid != participant_id
+            )
+            if not is_active:
+                continue
+
+        pose_frame = pose_tensor[frame_idx]
+        if torch.linalg.norm(pose_frame) < pose_norm_threshold:
+            continue
+
+        filtered_audio_frames.append(audio_data[:, start_sample:end_sample])
+        filtered_pose_frames.append(pose_frame)
+
+    if not filtered_audio_frames:
+        return torch.empty((0, audio_data.shape[0], samples_per_frame)), torch.empty((0, 7))
+
+    audio_tensor = torch.stack(filtered_audio_frames, dim=0)
+    pose_tensor = torch.stack(filtered_pose_frames, dim=0)
 
     return audio_tensor, pose_tensor
 
 
-def build_cache(audio_dir, pose_dir, session_ids, cache_dir):
+def build_cache(audio_dir, pose_dir, speech_dir, session_ids, cache_dir):
     cache_dir.mkdir(parents=True, exist_ok=True)
     index = []
     
@@ -68,7 +156,12 @@ def build_cache(audio_dir, pose_dir, session_ids, cache_dir):
             if not json_path.exists():
                 continue
 
-            audio_t, pose_t = preprocess_pair(wav_path, json_path)
+            audio_t, pose_t = preprocess_pair(
+                wav_path,
+                json_path,
+                speech_dir,
+                session,
+            )
             out_name = os.path.join(session_dir, str(stem) + ".pt")
             out_path = cache_dir / out_name
             os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -84,6 +177,7 @@ if __name__ == '__main__':
     root_dir = Path('data/Main')
     audio_dir = root_dir / Path('Glasses_Microphone_Array_Audio')
     pose_dir = root_dir / Path('Tracked_Poses')
-    build_cache(audio_dir, pose_dir, list(range(1, 11)), root_dir / Path('Train'))
-    build_cache(audio_dir, pose_dir, [11], root_dir / Path('Dev'))
-    build_cache(audio_dir, pose_dir, [12], root_dir / Path('Test'))
+    speech_dir = root_dir / Path('Speech_Transcriptions')
+    build_cache(audio_dir, pose_dir, speech_dir, list(range(1, 11)), root_dir / Path('Train'))
+    build_cache(audio_dir, pose_dir, speech_dir, [11], root_dir / Path('Dev'))
+    build_cache(audio_dir, pose_dir, speech_dir, [12], root_dir / Path('Test'))
