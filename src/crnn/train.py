@@ -139,6 +139,6 @@ def load_checkpoint(model: torch.nn.Module,
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     
     print(f" Loaded checkpoint from epoch {checkpoint['epoch']+1}")
-    print(f" Angular Error: {checkpoint['best_angular_error']:.2f}")
+    print(f" Angular Error: {checkpoint['angular_error_deg']:.2f}")
     
     return checkpoint
