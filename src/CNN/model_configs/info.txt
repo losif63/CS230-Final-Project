@@ -1,0 +1,3 @@
+In this folder, we have different CNN model configs that were used for training for the final project. 
+
+To use them directly, move them to the CNN folder and/or update config.py in CNN folder and run main.py. 
