@@ -6,7 +6,6 @@ Created on Nov 28, 2025
 @author: Sebastian Prepelita
 CNNModel2D - 2D CNN for spectrogram/Fourier-based audio-to-pose mapping
 """
-
 import numpy as np
 
 import torch
@@ -265,6 +264,107 @@ class CNNModel2DParams:
         return "\n".join(lines)
 
 
+def estimate_2d_model_memory(model_params: CNNModel2DParams, batch_size: int = 1) -> float:
+    """
+    Estimate the memory requirements for a 2D CNN model in GB.
+    
+    This function calculates the approximate memory needed for:
+    - Model parameters
+    - Gradients (same size as parameters)
+    - Optimizer states (Adam: 2x parameters for momentum and velocity)
+    - Activations (approximate)
+    
+    Parameters
+    ----------
+    model_params : CNNModel2DParams
+        The model parameters to estimate memory for
+    batch_size : int, optional
+        Batch size for training (default: 1)
+        
+    Returns
+    -------
+    float
+        Estimated total memory in GB
+        
+    Notes
+    -----
+    - Assumes float32 (4 bytes per parameter)
+    - Activation memory is approximate and may be lower/higher depending on model
+    - Does not include PyTorch overhead and other runtime memory
+    """
+    # Start with input dimensions
+    height = model_params.input_height
+    width = model_params.samples_per_frame
+    channels = model_params.n_channels
+    
+    total_params = 0
+    
+    # Calculate CNN layer parameters
+    in_channels = channels
+    for i, out_channels in enumerate(model_params.cnn_num_filter_list):
+        filter_h, filter_w = model_params.cnn_filter_size_list[i]
+        
+        # Conv layer params: (in_channels * filter_h * filter_w * out_channels) + bias
+        conv_params = (in_channels * filter_h * filter_w * out_channels) + out_channels
+        total_params += conv_params
+        
+        # Update dimensions after conv using getCnnOutputDimension1D
+        pad_h, pad_w = model_params.cnn_padding_list[i]
+        stride_h, stride_w = model_params.cnn_stride_list[i]
+        height = getCnnOutputDimension1D(height, pad_h, filter_h, stride_h)
+        width = getCnnOutputDimension1D(width, pad_w, filter_w, stride_w)
+        
+        # Update dimensions after pooling
+        pool_h, pool_w = model_params.max_pool_filter_size_list[i]
+        pool_stride_h, pool_stride_w = model_params.max_pool_stride_size_list[i]
+        
+        # Match the actual model construction logic (lines 559-584):
+        # Pooling is applied if EITHER dimension has valid kernel AND stride
+        if (pool_h > 0 and pool_stride_h > 0) or (pool_w > 0 and pool_stride_w > 0):
+            # Only update dimension if that dimension's pooling is enabled
+            if pool_h > 0 and pool_stride_h > 0:
+                height = getCnnOutputDimension1D(height, 0, pool_h, pool_stride_h)
+            if pool_w > 0 and pool_stride_w > 0:
+                width = getCnnOutputDimension1D(width, 0, pool_w, pool_stride_w)
+        
+        in_channels = out_channels
+    
+    # Calculate flattened feature size
+    flattened_features = in_channels * height * width
+    
+    # Calculate FC layer parameters
+    fc_input = flattened_features
+    for fc_dim in model_params.FC_hidden_dims:
+        fc_params = (fc_input * fc_dim) + fc_dim  # weights + bias
+        total_params += fc_params
+        fc_input = fc_dim
+    
+    # Final output layer
+    final_params = (fc_input * model_params.output_dim) + model_params.output_dim
+    total_params += final_params
+    
+    # Memory calculation (in bytes, then convert to GB)
+    bytes_per_param = 4  # float32
+    
+    # Parameters
+    param_memory = total_params * bytes_per_param
+    
+    # Gradients (same size as parameters)
+    gradient_memory = total_params * bytes_per_param
+    
+    # Optimizer states (Adam: 2x for momentum and velocity)
+    optimizer_memory = 2 * total_params * bytes_per_param
+    
+    # Approximate activation memory (very rough estimate)
+    # Assume activations are roughly proportional to flattened features
+    activation_memory = flattened_features * batch_size * bytes_per_param * 10  # rough multiplier
+    
+    # Total memory in GB
+    total_memory_gb = (param_memory + gradient_memory + optimizer_memory + activation_memory) / (1024**3)
+    
+    return total_memory_gb
+
+
 def getCnnOutputDimension1D(inDim: int, padding: int, filterSize: int, stride: int):
     """
     Compute the output dimension of a 1D convolution along a single axis.
@@ -290,10 +390,13 @@ def getCnnOutputDimension1D(inDim: int, padding: int, filterSize: int, stride: i
     The formula used is:
         outDim = floor((inDim - filterSize + 2*padding) / stride) + 1
 
+        vs: (inDim - filterSize + 2 * padding) // stride + 1
+
     This matches the standard convolution output size calculation
     used in deep learning frameworks such as PyTorch and TensorFlow.
+    Uses integer division (//) for efficiency instead of floor() and int().
     """
-    return int(np.floor((inDim - filterSize + 2 * padding) / stride)) + 1
+    return int(np.floor((inDim - filterSize + 2*padding) / stride)) + 1
 
 
 class CNNModel2D(nn.Module):
@@ -304,29 +407,15 @@ class CNNModel2D(nn.Module):
         samples_per_frame=2400,
         input_height=2,
         cnn_num_filter_list=[64, 128, 256, 256],  # same as output channels
-        cnn_filter_size_list=[
-            (2, 128),
-            (2, 128),
-            (2, 64),
-            (2, 8),
-        ],  # tuple (height, width)
+        cnn_filter_size_list=[(2, 128), (2, 128), (2, 64), (2, 8), ],  # tuple (height, width)
         cnn_stride_list=[(1, 1), (1, 1), (1, 1), (1, 1)],  # tuple (height, width)
         cnn_padding_list=[(0, 0), (0, 0), (0, 0), (0, 0)],  # tuple (height, width)
-        max_pool_filter_size_list=[
-            (0, 0),
-            (1, 2),
-            (1, 3),
-            (1, 4),
-        ],  # use (0,0) to skip, tuple (height, width)
-        max_pool_stride_size_list=[
-            (1, 2),
-            (1, 2),
-            (1, 3),
-            (1, 4),
-        ],  # tuple (height, width)
+        max_pool_filter_size_list=[(0, 0), (1, 2), (1, 3), (1, 4),],  # use (0,0) to skip, tuple (height, width)
+        max_pool_stride_size_list=[(1, 2), (1, 2), (1, 3), (1, 4), ],  # tuple (height, width)
         FC_hidden_dims=[512, 256, 128],
         output_dim=7,
         dropout=0.3,
+        logger: Optional[logging.Logger] = None,
     ):
         """
         Build a 2D CNN + FC regression model for audio-to-pose mapping.
@@ -413,6 +502,11 @@ class CNNModel2D(nn.Module):
         current_width = samples_per_frame
         prev_channels = n_channels
 
+        # Debug logging for dimension tracking
+        if logger:
+            logger.debug(f"[MODEL INIT] {model_name}: Starting dimension calculation")
+            logger.debug(f"[MODEL INIT] Initial: height={current_height}, width={current_width}, channels={prev_channels}")
+
         layers = []
         self.trainable_params = []
 
@@ -458,18 +552,24 @@ class CNNModel2D(nn.Module):
             # Update both spatial dimensions separately
             pad_h, pad_w = padding
             stride_h, stride_w = stride
-            current_height = getCnnOutputDimension1D(
+            height_before_pool = getCnnOutputDimension1D(
                 inDim=current_height,
                 padding=pad_h,
                 filterSize=kernel_h,
                 stride=stride_h,
             )
-            current_width = getCnnOutputDimension1D(
+            width_before_pool = getCnnOutputDimension1D(
                 inDim=current_width,
                 padding=pad_w,
                 filterSize=kernel_w,
                 stride=stride_w,
             )
+            
+            if logger:
+                logger.debug(f"[MODEL INIT] Layer {cnn_layer_idx}: After Conv({kernel_h}x{kernel_w}, stride={stride_h}x{stride_w}): {height_before_pool}x{width_before_pool}")
+            
+            current_height = height_before_pool
+            current_width = width_before_pool
 
             # Check if pooling is enabled (kernel > 0 AND stride > 0)
             # Both dimensions must have valid kernel and stride to enable pooling
@@ -502,15 +602,28 @@ class CNNModel2D(nn.Module):
                         filterSize=pool_kernel_w,
                         stride=pool_stride_w,
                     )
+                
+                if logger:
+                    logger.debug(f"[MODEL INIT] Layer {cnn_layer_idx}: Pooling applied (kernel={pool_kernel_h}x{pool_kernel_w}, stride={pool_stride_h}x{pool_stride_w}): {current_height}x{current_width}")
+            else:
+                if logger:
+                    logger.debug(f"[MODEL INIT] Layer {cnn_layer_idx}: Pooling SKIPPED (kernel={pool_kernel_h}x{pool_kernel_w}, stride={pool_stride_h}x{pool_stride_w})")
+                
         # Flatten before connecting to FC layers:
         layers.append(nn.Flatten())
         # Compute total output dimensions for the FC first layer:
         # After 2D conv layers: (batch, channels, height, width) -> flatten to (batch, channels*height*width)
         prev_dim = prev_channels * current_height * current_width
+        
+        if logger:
+            logger.debug(f"[MODEL INIT] Final CNN output: {prev_channels} channels × {current_height} × {current_width} = {prev_dim} features")
+            logger.debug(f"[MODEL INIT] First FC layer: {prev_dim} inputs → {FC_hidden_dims[0]} outputs")
         # FC stack:
         #######################
         for h_dim in FC_hidden_dims:
             layers.append(nn.Linear(prev_dim, h_dim))
+            if logger:
+                logger.debug(f"   [MODEL INIT]    Adding FC ({prev_dim},{h_dim}) features!")
             # Batchnorm:
             layers.append(nn.BatchNorm1d(h_dim))
             batch_norm_channels += h_dim * 2
@@ -551,6 +664,13 @@ class CNNModel2D(nn.Module):
         return sum_
 
     def forward(self, x):
+        # CRITICAL DEBUG: Log actual input dimensions
+        # if not hasattr(self, '_forward_debug_logged'):
+        #     print(f"[FORWARD DEBUG] {self.model_name}: Input shape = {x.shape}")
+        #     print(f"[FORWARD DEBUG] Expected: (batch, {self.n_channels}, {self.input_height}, {self.samples_per_frame})")
+        #     print(f"[FORWARD DEBUG] Actual:   (batch={x.shape[0]}, channels={x.shape[1]}, height={x.shape[2]}, width={x.shape[3]})")
+        #     self._forward_debug_logged = True
+        
         pose = self.CnNetwork(x)
         # x: (batch_size, n_channels, input_height, samples_per_frame) 2D audio representation
         if self.output_dim == 3:
@@ -568,7 +688,7 @@ class CNNModel2D(nn.Module):
 
 def create_2d_cnn_model(
     model_params: CNNModel2DParams,
-    config: src.baseline.config.Config,
+    device: torch.device,
     logger: Optional[logging.Logger] = None,
 ):
     """
@@ -578,8 +698,8 @@ def create_2d_cnn_model(
     ----------
     model_params : CNNModel2DParams
         Dataclass containing all model hyperparameters for 2D CNN.
-    config : src.baseline.config.Config
-        Configuration object containing device and other settings.
+    device : torch.device
+        Target device for model (e.g., 'cuda:0', 'cpu')
     logger : logging.Logger, optional
         Logger instance for logging model creation details.
 
@@ -598,29 +718,6 @@ def create_2d_cnn_model(
     This function is specifically for 2D CNN models that process spectrogram-like
     inputs (e.g., Fourier-transformed audio data). All kernel sizes, strides, and
     padding must be specified as (height, width) tuples in the model_params.
-
-    Example
-    -------
-    >>> from src.CNN.cnn_2d_model import CNNModel2DParams, create_2d_cnn_model
-    >>> from src.CNN import config
-    >>>
-    >>> params = CNNModel2DParams(
-    ...     model_name="fourier_cnn",
-    ...     n_channels=6,
-    ...     samples_per_frame=2400,
-    ...     input_height=2,
-    ...     cnn_num_filter_list=[64, 128, 256],
-    ...     cnn_filter_size_list=[(2, 128), (2, 64), (2, 32)],
-    ...     cnn_stride_list=[(1, 1), (1, 1), (1, 1)],
-    ...     cnn_padding_list=[(0, 0), (0, 0), (0, 0)],
-    ...     max_pool_filter_size_list=[(0, 0), (1, 2), (1, 3)],
-    ...     max_pool_stride_size_list=[(1, 2), (1, 2), (1, 3)],
-    ...     FC_hidden_dims=[512, 256],
-    ...     output_dim=7,
-    ...     dropout=0.3
-    ... )
-    >>>
-    >>> model = create_2d_cnn_model(params, config.Config)
     """
     # Validate parameters before creating the model
     model_params.checkInternalConsistency()
@@ -642,8 +739,9 @@ def create_2d_cnn_model(
         FC_hidden_dims=params_dict["FC_hidden_dims"],
         output_dim=params_dict["output_dim"],
         dropout=params_dict["dropout"],
+        logger=logger,
     )
-    model = model.to(config.DEVICE)
+    model = model.to(device)
 
     num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
     if logger is not None:
