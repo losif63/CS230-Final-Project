@@ -1,3 +1,10 @@
 In this folder, we have different CNN model configs that were used for training for the final project. 
 
-To use them directly, move them to the CNN folder and/or update config.py in CNN folder and run main.py. 
+To use them directly, move them to the CNN folder and/or update config.py in CNN folder and run main.py.
+
+The following files are the same (i.e., duplicate) models as in 2d_model_configs_spectogram_7D_20epochs_1_8.json, but split into groups of 8 models so they are trained in parallel on nodes with 8 GPUs (the last numbers represent the model ID from the original 2d_model_configs_spectogram_7D_20epochs_1_8.json):
+   * 2d_model_configs_spectogram_7D_20epochs_1_8.json
+   * 2d_model_configs_spectogram_7D_20epochs_9_16.json
+   * 2d_model_configs_spectogram_7D_20epochs_17_24.json
+   * 2d_model_configs_spectogram_7D_20epochs_25_27.json
+   * 2d_model_configs_spectogram_7D_20epochs_OOM.json  (this one contains larger models that ran out of GPU memory with 64 batch size - moved batch size to 32)
