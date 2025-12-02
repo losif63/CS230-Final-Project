@@ -64,7 +64,6 @@ def preprocess_pair(
     speech_dir: Path,
     session_id: int,
     participant_id: int = 2,
-    filter_silence: bool = True,
     pose_norm_threshold: float = 0.1,
 ):
     # Read audio
@@ -100,42 +99,25 @@ def preprocess_pair(
     
     n_pose_frames = pose_tensor.shape[0]
     max_frames = min(n_audio_frames, n_pose_frames)
-
-    speech_lookup = None
-    participant_ids: List[int] = []
-    if filter_silence:
-        transcription_data = load_speech_transcriptions(speech_dir, session_id, wav_path)
-        speech_lookup = create_speech_lookup(transcription_data, n_pose_frames)
-        participant_ids = get_all_participant_ids(pose_data)
-
-    filtered_audio_frames: List[torch.Tensor] = []
-    filtered_pose_frames: List[torch.Tensor] = []
+    audio_frames: List[torch.Tensor] = []
+    pose_frames: List[torch.Tensor] = []
 
     for frame_idx in range(max_frames):
         start_sample = frame_idx * samples_per_frame
         end_sample = start_sample + samples_per_frame
 
-        if filter_silence and speech_lookup is not None:
-            is_active = any(
-                speech_lookup[pid][frame_idx]
-                for pid in participant_ids
-                if pid != participant_id
-            )
-            if not is_active:
-                continue
-
         pose_frame = pose_tensor[frame_idx]
         if torch.linalg.norm(pose_frame) < pose_norm_threshold:
             continue
 
-        filtered_audio_frames.append(audio_data[:, start_sample:end_sample])
-        filtered_pose_frames.append(pose_frame)
+        audio_frames.append(audio_data[:, start_sample:end_sample])
+        pose_frames.append(pose_frame)
 
-    if not filtered_audio_frames:
+    if not audio_frames:
         return torch.empty((0, audio_data.shape[0], samples_per_frame)), torch.empty((0, 7))
 
-    audio_tensor = torch.stack(filtered_audio_frames, dim=0)
-    pose_tensor = torch.stack(filtered_pose_frames, dim=0)
+    audio_tensor = torch.stack(audio_frames, dim=0)
+    pose_tensor = torch.stack(pose_frames, dim=0)
 
     return audio_tensor, pose_tensor
 
@@ -168,7 +150,7 @@ def build_cache(audio_dir, pose_dir, speech_dir, session_ids, cache_dir):
 
             torch.save({"audio": audio_t, "pose": pose_t}, out_path)
             index.append(out_name)
-            print("Saved", out_path)
+            print(f"Saved audio: {audio_t.shape} | pose: {pose_t.shape} ", out_path)
 
     # optionally save index list
     torch.save(index, cache_dir / "index.pt")

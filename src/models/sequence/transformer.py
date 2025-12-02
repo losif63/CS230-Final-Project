@@ -65,25 +65,41 @@ class TransformerSeq(nn.Module):
         )
         self.layer_norm = nn.LayerNorm(hidden_dim)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, lengths: torch.Tensor = None) -> torch.Tensor:
         """
         Args:
-            x: (B, T, hidden_dim)
+            x: (B, T, hidden_dim)  - padded sequences
+            lengths: (B,)          - true lengths (number of valid frames) per sequence
+            return_sequence: if True, return full (B, T, H) sequence,
+                             else return pooled last state (B, H)
+
         Returns:
-            out: (B, T, hidden_dim)
+            (B, hidden_dim)  - last valid token representation
         """
-        # Build padding mask from zeros (since you pad audio/pose with zeros)
-        # True where we want to *ignore* positions
-        # shape: (B, T)
-        with torch.no_grad():
+        B, T, D = x.shape
+
+        if lengths is not None:
+            # True where we want to ignore positions (PAD)
+            src_key_padding_mask = (
+                torch.arange(T, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
+            )  # (B, T)
+        else:
+            # fallback: infer pad from zeros (less ideal)
             src_key_padding_mask = (x.abs().sum(dim=-1) < 1e-6)
 
         # Add positional encoding
         x = self.pos_encoding(x)  # (B, T, D)
 
-        # Transformer encoder
+        # Transformer encoder with padding mask
         out = self.encoder(x, src_key_padding_mask=src_key_padding_mask)  # (B, T, D)
 
-        # Final LayerNorm (similar to your LSTMSeq)
+        # LayerNorm
         out = self.layer_norm(out)
-        return out
+
+        # ---- Pool: take last *valid* token per sequence ----
+        # lengths is count, so last index = lengths - 1
+        last_idx = lengths - 1  # (B,)
+
+        # gather: out[b, last_idx[b], :]
+        pooled = out[torch.arange(B, device=x.device), last_idx]  # (B, D)
+        return pooled

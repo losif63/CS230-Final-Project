@@ -33,6 +33,7 @@ from utils.utilsIO import get_head_tracking_fs
 from utils.save import save_training_history, plot_training_curves
 
 from baseline.metrics import pose_6dof_loss
+from baseline.data_utils import EasyComDataLoader
 
 # Constants
 SAMPLE_RATE = 48000
@@ -107,18 +108,41 @@ class AudioPoseDataset(Dataset):
         self.files = torch.load(self.cache_dir / "index.pt")
         self.audios = []
         self.poses = []
-        for file in tqdm(self.files):
+        self.valid_indices = []
+        self.loader = EasyComDataLoader(data_root="data/Main")
+        for file_idx, file in enumerate(tqdm(self.files)):
             path = self.cache_dir / file
             data = torch.load(path, map_location="cpu")
+            assert data['audio'].shape[0] == data['pose'].shape[0]
+            seq_len = data['audio'].shape[0]
             self.audios.append(data["audio"])
             self.poses.append(data['pose'])
-        assert len(self.audios) == len(self.poses)
 
+            pose_file = self.loader.tracked_poses_dir / f"{file[:-3]}.json"
+            with open(pose_file, 'r', encoding='latin-1') as f:
+                poses_data = json.load(f)
+            
+            trans_file = self.loader.speech_transcriptions_dir / f"{file[:-3]}.json"
+            with open(trans_file, 'r', encoding='latin-1') as f:
+                transcription_data = json.load(f)
+            speech_lookup = self.loader.create_speech_lookup(transcription_data, seq_len)
+            participant_ids = self.loader.get_all_participant_ids(poses_data)
+
+            for frame_idx in range(seq_len):
+                is_active = any(
+                    speech_lookup[pid][frame_idx]
+                    for pid in participant_ids
+                    if pid != self.loader.ARRAY_WEARER_ID
+                )
+                if is_active:
+                    self.valid_indices.append((file_idx, frame_idx))
+            
     def __len__(self):
-        return len(self.audios)
+        return len(self.valid_indices)
 
     def __getitem__(self, idx):
-        return self.audios[idx], self.poses[idx]
+        file_idx, frame_idx = self.valid_indices[idx]
+        return self.audios[file_idx][max(0, frame_idx-49):frame_idx+1], self.poses[file_idx][frame_idx]
 
 
 class AudioPoseModel(nn.Module):
@@ -131,7 +155,7 @@ class AudioPoseModel(nn.Module):
         self.sequence_model = config.sequence_model(hidden_dim=config.hidden_dim, num_layers=config.num_layers, dropout=config.dropout)
         self.head = config.head(hidden_dim=config.hidden_dim)
     
-    def forward(self, x):
+    def forward(self, x, lengths):
         """
         Args:
             x: Audio tensor of shape (batch, seq_len, samples_per_frame)
@@ -146,22 +170,17 @@ class AudioPoseModel(nn.Module):
         features = self.feature_extractor(x)
         
         # Process sequence through LSTM
-        # Output: (batch, seq_len, hidden_dim)
-        seq_features = self.sequence_model(features)
+        # Output: (batch, hidden_dim)
+        features = self.sequence_model(features, lengths)
         
         # Apply head to each timestep
-        # Reshape to (batch * seq_len, hidden_dim)
-        seq_features_flat = torch.reshape(seq_features, (-1, seq_features.shape[-1]))
-        # Output: (batch * seq_len, 7)
-        output = self.head(seq_features_flat)
-        # Reshape back to (batch, seq_len, 7)
-        output = output.view(batch_size, seq_len, -1)
+        # Output: (batch, 7)
+        output = self.head(features)
 
-        position = output[:, :, :3]
-        quaternion = output[:, :, 3:]
+        position = output[:, :3]
+        quaternion = output[:, 3:]
         quaternion = torch.nn.functional.normalize(quaternion, p=2, dim=-1)
         output = torch.cat([position, quaternion], dim=-1)
-
         
         return output
 
@@ -179,13 +198,14 @@ def collate_fn(batch):
         pose_batch: Padded tensor of shape [batch_size, max_seq_len, 7]
     """
     audio_list, pose_list = zip(*batch)
-    
+
+    lengths = torch.tensor([a.shape[0] for a in audio_list], dtype=torch.long) 
     # Pad sequences to the maximum length in the batch
     # pad_sequence expects (seq_len, *) tensors and pads along the first dimension
     audio_batch = pad_sequence(audio_list, batch_first=True, padding_value=0.0)
     pose_batch = pad_sequence(pose_list, batch_first=True, padding_value=0.0)
     
-    return audio_batch, pose_batch
+    return audio_batch, pose_batch, lengths
 
 
 def train_epoch(model, dataloader, criterion, optimizer, device):
@@ -197,14 +217,15 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
     total_valid_frames = 0
     num_batches = 0 
     
-    for audio, pose in tqdm(dataloader):
+    for audio, pose, lengths in tqdm(dataloader):
         # Move to device (non_blocking for faster transfer if using GPU)
         audio = audio.to(device, non_blocking=True)
         pose = pose.to(device, non_blocking=True)
+        lengths = lengths.to(device, non_blocking=True)
         
         # Forward pass
         optimizer.zero_grad()
-        output = model(audio)
+        output = model(audio, lengths)
         
         # Compute loss (only on non-padded and valid frames)
         # Create mask for valid frames:
@@ -254,7 +275,7 @@ def train_epoch(model, dataloader, criterion, optimizer, device):
         num_batches += 1
         
         # Explicitly delete tensors to free memory
-        del audio, pose, output, loss, valid_mask
+        del audio, pose, lengths, output, loss, valid_mask
     
     # Clear CUDA cache periodically (every epoch)
     if device.type == 'cuda':
@@ -288,13 +309,13 @@ def evaluate(model, dataloader, criterion, device):
     num_batches = 0
     
     with torch.no_grad():
-        for audio, pose in dataloader:
+        for audio, pose, lengths in dataloader:
             # Move to device (non_blocking for faster transfer if using GPU)
             audio = audio.to(device, non_blocking=True)
             pose = pose.to(device, non_blocking=True)
             
             # Forward pass
-            output = model(audio)
+            output = model(audio, lengths)
             
             # Compute loss (only on non-padded and valid frames)
             # Create mask for valid frames:
@@ -344,7 +365,7 @@ def evaluate(model, dataloader, criterion, device):
                 total_loss += loss.item()
             
             # Explicitly delete batch tensors
-            del audio, pose, output, loss, valid_mask
+            del audio, pose, lengths, output, loss, valid_mask
             
             num_batches += 1
     
@@ -537,7 +558,7 @@ def main():
         # "hidden_dim": 16,
         # "num_layers": 2,
         "dropout": 0.1,
-        "num_epochs": 100,
+        "num_epochs": 1,
         "feature_extractor": MLPExtractor,
         "sequence_model": LSTMSeq,
         "head": MLPHead,
@@ -546,7 +567,7 @@ def main():
     layers = [1, 2, 4, 8]
     hidden_dims = [64, 128, 256]
 
-    runs_root = Path("runs_newdata")
+    runs_root = Path("runs_byframedata")
     for layer in layers:
         for dim in hidden_dims:
             cfg_dict = dict(base_config)
