@@ -103,8 +103,9 @@ class TrainConfig():
         }
 
 class AudioPoseDataset(Dataset):
-    def __init__(self, cache_dir):
+    def __init__(self, cache_dir, window_length):
         self.cache_dir = Path(cache_dir)
+        self.window_length = window_length
         self.files = torch.load(self.cache_dir / "index.pt")
         self.audios = []
         self.poses = []
@@ -142,7 +143,7 @@ class AudioPoseDataset(Dataset):
 
     def __getitem__(self, idx):
         file_idx, frame_idx = self.valid_indices[idx]
-        return self.audios[file_idx][max(0, frame_idx-49):frame_idx+1], self.poses[file_idx][frame_idx]
+        return self.audios[file_idx][max(0, frame_idx-self.window_length + 1):frame_idx+1], self.poses[file_idx][frame_idx]
 
 
 class AudioPoseModel(nn.Module):
@@ -377,7 +378,7 @@ def evaluate(model, dataloader, criterion, device):
     num_batches = 0
     
     with torch.no_grad():
-        for audio, pose, lengths in dataloader:
+        for audio, pose, lengths in tqdm(dataloader):
             # Move to device (non_blocking for faster transfer if using GPU)
             audio = audio.to(device, non_blocking=True)
             pose = pose.to(device, non_blocking=True)
@@ -531,7 +532,7 @@ def run_experiment(config: TrainConfig,
     print(f"[{run_dir.name}] Starting training with config:\n{config}")
 
     global_step = 0
-    eval_per_n_steps = 200
+    eval_per_n_steps = 300
     total_train_loss = 0.0
     total_train_positional_error = 0.0
     total_train_angular_error = 0.0
@@ -670,39 +671,41 @@ def main():
     dev_dir = data_root / Path("Dev")
     test_dir = data_root / Path("Test")
     
-    # Create datasets
-    print("Loading datasets...")
-    train_dataset = AudioPoseDataset(train_dir)
-    dev_dataset = AudioPoseDataset(dev_dir)
-    test_dataset = AudioPoseDataset(test_dir)
-    
-    base_config = {
-        "batch_size": 32,
-        "learning_rate": 1e-4,
-        # "hidden_dim": 16,
-        # "num_layers": 2,
-        "dropout": 0.1,
-        "num_epochs": 1,
-        "feature_extractor": MLPExtractor,
-        "sequence_model": LSTMSeq,
-        "head": MLPHead,
-    }
+    for seq, seqname in ((LSTMSeq, "LSTM"), (TransformerSeq, "Transformer")):
+        for window_length in [50, 100, 200]:
+            # Create datasets
+            print("Loading datasets...")
+            train_dataset = AudioPoseDataset(train_dir, window_length)
+            dev_dataset = AudioPoseDataset(dev_dir, window_length)
+            test_dataset = AudioPoseDataset(test_dir, window_length)
+            
+            base_config = {
+                "batch_size": 32,
+                "learning_rate": 1e-4,
+                # "hidden_dim": 16,
+                # "num_layers": 2,
+                "dropout": 0.1,
+                "num_epochs": 1,
+                "feature_extractor": MLPExtractor,
+                "sequence_model": seq,
+                "head": MLPHead,
+            }
 
-    layers = [1, 2, 4, 8]
-    hidden_dims = [64, 128, 256]
+            layers = [1, 2, 4, 8]
+            hidden_dims = [64, 128, 256]
 
-    runs_root = Path("runs_byframedata")
-    for layer in layers:
-        for dim in hidden_dims:
-            cfg_dict = dict(base_config)
-            cfg_dict["num_layers"] = layer
-            cfg_dict["hidden_dim"] = dim 
-            config = TrainConfig(cfg_dict)
+            runs_root = Path(f"runs_window_{window_length}")
+            for layer in layers:
+                for dim in hidden_dims:
+                    cfg_dict = dict(base_config)
+                    cfg_dict["num_layers"] = layer
+                    cfg_dict["hidden_dim"] = dim 
+                    config = TrainConfig(cfg_dict)
 
-            run_name = f"MLPExtractor_{layer}LayerLSTM_MLPHead/dim_{dim}"
-            run_dir = runs_root / run_name
+                    run_name = f"MLPExtractor_{layer}Layer{seqname}_MLPHead/dim_{dim}"
+                    run_dir = runs_root / run_name
 
-            run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
+                    run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
 
 
 if __name__ == '__main__':
