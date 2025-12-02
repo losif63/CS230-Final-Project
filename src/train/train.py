@@ -207,89 +207,157 @@ def collate_fn(batch):
     
     return audio_batch, pose_batch, lengths
 
+# Deprecated
+# def train_epoch(model, dataloader, criterion, optimizer, device):
+#     """Train for one epoch."""
+#     model.train()
+#     total_loss = 0.0
+#     total_positional_error = 0.0
+#     total_angular_error = 0.0
+#     total_valid_frames = 0
+#     num_batches = 0 
+    
+#     for audio, pose, lengths in tqdm(dataloader):
+#         # Move to device (non_blocking for faster transfer if using GPU)
+#         audio = audio.to(device, non_blocking=True)
+#         pose = pose.to(device, non_blocking=True)
+#         lengths = lengths.to(device, non_blocking=True)
+        
+#         # Forward pass
+#         optimizer.zero_grad()
+#         output = model(audio, lengths)
+        
+#         # Compute loss (only on non-padded and valid frames)
+#         # Create mask for valid frames:
+#         # 1. Not padded (pose is not all zeros)
+#         # 2. Pose norm >= 0.1 (filter out near-zero/invalid poses, like baseline)
+#         pose_norm = torch.norm(pose, dim=-1)  # (batch, seq_len)
+#         not_padded = (pose.abs().sum(dim=-1) > 1e-6)  # (batch, seq_len)
+#         is_valid_pose = (pose_norm >= 0.1)  # Filter low-norm poses like baseline
+#         valid_mask = not_padded & is_valid_pose  # (batch, seq_len)
+#         if valid_mask.sum() > 0:
+#             valid_output = output[valid_mask]  # (N_valid, 7)
+#             valid_pose = pose[valid_mask]      # (N_valid, 7)
+#             # Only compute loss on valid frames
+#             loss = criterion(valid_output, valid_pose)
+#             # Compute positional error (Euclidean distance for first 3 dimensions)
+#             pred_pos = valid_output[:, :3]  # (N_valid, 3)
+#             gt_pos = valid_pose[:, :3]      # (N_valid, 3)
+#             positional_errors = torch.norm(pred_pos - gt_pos, dim=1)  # (N_valid,)
+#             total_positional_error += positional_errors.sum().item()
+            
+#             # Compute angular error (angle between quaternions)
+#             pred_quat = valid_output[:, 3:]  # (N_valid, 4) [x, y, z, w]
+#             gt_quat = valid_pose[:, 3:]      # (N_valid, 4) [x, y, z, w]
+            
+#             # Compute dot product (clamp to [-1, 1] for numerical stability)
+#             dot_product = torch.clamp(torch.sum(pred_quat * gt_quat, dim=1), -1.0, 1.0)
+            
+#             # Angular error in radians (using 2 * arccos(|dot|) for quaternion distance)
+#             # We use absolute value to handle quaternion double-cover (q and -q represent same rotation)
+#             angular_errors_rad = 2 * torch.acos(torch.abs(dot_product))
+            
+#             # Convert to degrees
+#             angular_errors_deg = torch.rad2deg(angular_errors_rad)
+#             total_angular_error += angular_errors_deg.sum().item()
+            
+#             total_valid_frames += valid_mask.sum().item()
 
-def train_epoch(model, dataloader, criterion, optimizer, device):
-    """Train for one epoch."""
+            
+#         else:
+#             loss = torch.tensor(0.0, device=device, requires_grad=True)
+        
+#         # Backward pass
+#         loss.backward()
+#         optimizer.step()
+        
+#         total_loss += loss.item()
+#         num_batches += 1
+        
+#         # Explicitly delete tensors to free memory
+#         del audio, pose, lengths, output, loss, valid_mask
+    
+#     # Clear CUDA cache periodically (every epoch)
+#     if device.type == 'cuda':
+#         torch.cuda.empty_cache()
+#     # Compute averages
+#     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+#     avg_positional_error = total_positional_error / total_valid_frames if total_valid_frames > 0 else 0.0
+#     avg_angular_error = total_angular_error / total_valid_frames if total_valid_frames > 0 else 0.0
+
+#     return {
+#         'loss': avg_loss,
+#         'positional_error': avg_positional_error,
+#         'angular_error': avg_angular_error
+#     }
+
+def train_step(model, audio, pose, lengths, criterion, optimizer, scheduler, device):
+    """Train for one step."""
     model.train()
-    total_loss = 0.0
+    
+    # Move to device (non_blocking for faster transfer if using GPU)
+    audio = audio.to(device, non_blocking=True)
+    pose = pose.to(device, non_blocking=True)
+    lengths = lengths.to(device, non_blocking=True)
+    
+    # Forward pass
+    optimizer.zero_grad()
+    output = model(audio, lengths)
+    
+    # Compute loss (only on non-padded and valid frames)
+    # Create mask for valid frames:
+    # 1. Not padded (pose is not all zeros)
+    # 2. Pose norm >= 0.1 (filter out near-zero/invalid poses, like baseline)
+    pose_norm = torch.norm(pose, dim=-1)  # (batch, seq_len)
+    not_padded = (pose.abs().sum(dim=-1) > 1e-6)  # (batch, seq_len)
+    is_valid_pose = (pose_norm >= 0.1)  # Filter low-norm poses like baseline
+    valid_mask = not_padded & is_valid_pose  # (batch, seq_len)
+    total_valid_frames = 0
     total_positional_error = 0.0
     total_angular_error = 0.0
-    total_valid_frames = 0
-    num_batches = 0 
-    
-    for audio, pose, lengths in tqdm(dataloader):
-        # Move to device (non_blocking for faster transfer if using GPU)
-        audio = audio.to(device, non_blocking=True)
-        pose = pose.to(device, non_blocking=True)
-        lengths = lengths.to(device, non_blocking=True)
-        
-        # Forward pass
-        optimizer.zero_grad()
-        output = model(audio, lengths)
-        
-        # Compute loss (only on non-padded and valid frames)
-        # Create mask for valid frames:
-        # 1. Not padded (pose is not all zeros)
-        # 2. Pose norm >= 0.1 (filter out near-zero/invalid poses, like baseline)
-        pose_norm = torch.norm(pose, dim=-1)  # (batch, seq_len)
-        not_padded = (pose.abs().sum(dim=-1) > 1e-6)  # (batch, seq_len)
-        is_valid_pose = (pose_norm >= 0.1)  # Filter low-norm poses like baseline
-        valid_mask = not_padded & is_valid_pose  # (batch, seq_len)
-        if valid_mask.sum() > 0:
-            valid_output = output[valid_mask]  # (N_valid, 7)
-            valid_pose = pose[valid_mask]      # (N_valid, 7)
-            # Only compute loss on valid frames
-            loss = criterion(valid_output, valid_pose)
-            # Compute positional error (Euclidean distance for first 3 dimensions)
-            pred_pos = valid_output[:, :3]  # (N_valid, 3)
-            gt_pos = valid_pose[:, :3]      # (N_valid, 3)
-            positional_errors = torch.norm(pred_pos - gt_pos, dim=1)  # (N_valid,)
-            total_positional_error += positional_errors.sum().item()
-            
-            # Compute angular error (angle between quaternions)
-            pred_quat = valid_output[:, 3:]  # (N_valid, 4) [x, y, z, w]
-            gt_quat = valid_pose[:, 3:]      # (N_valid, 4) [x, y, z, w]
-            
-            # Compute dot product (clamp to [-1, 1] for numerical stability)
-            dot_product = torch.clamp(torch.sum(pred_quat * gt_quat, dim=1), -1.0, 1.0)
-            
-            # Angular error in radians (using 2 * arccos(|dot|) for quaternion distance)
-            # We use absolute value to handle quaternion double-cover (q and -q represent same rotation)
-            angular_errors_rad = 2 * torch.acos(torch.abs(dot_product))
-            
-            # Convert to degrees
-            angular_errors_deg = torch.rad2deg(angular_errors_rad)
-            total_angular_error += angular_errors_deg.sum().item()
-            
-            total_valid_frames += valid_mask.sum().item()
 
-            
-        else:
-            loss = torch.tensor(0.0, device=device, requires_grad=True)
+    if valid_mask.sum() > 0:
+        valid_output = output[valid_mask]  # (N_valid, 7)
+        valid_pose = pose[valid_mask]      # (N_valid, 7)
+        # Only compute loss on valid frames
+        loss = criterion(valid_output, valid_pose)
+        # Compute positional error (Euclidean distance for first 3 dimensions)
+        pred_pos = valid_output[:, :3]  # (N_valid, 3)
+        gt_pos = valid_pose[:, :3]      # (N_valid, 3)
+        positional_errors = torch.norm(pred_pos - gt_pos, dim=1)  # (N_valid,)
+        total_positional_error += positional_errors.sum().item()
         
-        # Backward pass
-        loss.backward()
-        optimizer.step()
+        # Compute angular error (angle between quaternions)
+        pred_quat = valid_output[:, 3:]  # (N_valid, 4) [x, y, z, w]
+        gt_quat = valid_pose[:, 3:]      # (N_valid, 4) [x, y, z, w]
         
-        total_loss += loss.item()
-        num_batches += 1
+        # Compute dot product (clamp to [-1, 1] for numerical stability)
+        dot_product = torch.clamp(torch.sum(pred_quat * gt_quat, dim=1), -1.0, 1.0)
         
-        # Explicitly delete tensors to free memory
-        del audio, pose, lengths, output, loss, valid_mask
+        # Angular error in radians (using 2 * arccos(|dot|) for quaternion distance)
+        # We use absolute value to handle quaternion double-cover (q and -q represent same rotation)
+        angular_errors_rad = 2 * torch.acos(torch.abs(dot_product))
+        
+        # Convert to degrees
+        angular_errors_deg = torch.rad2deg(angular_errors_rad)
+        total_angular_error += angular_errors_deg.sum().item()
+        
+        total_valid_frames += valid_mask.sum().item()
+    else:
+        loss = torch.tensor(0.0, device=device, requires_grad=True)
     
-    # Clear CUDA cache periodically (every epoch)
-    if device.type == 'cuda':
-        torch.cuda.empty_cache()
-    # Compute averages
-    avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-    avg_positional_error = total_positional_error / total_valid_frames if total_valid_frames > 0 else 0.0
-    avg_angular_error = total_angular_error / total_valid_frames if total_valid_frames > 0 else 0.0
-
+    # Backward pass
+    loss.backward()
+    optimizer.step()
+    scheduler.step()
+    
     return {
-        'loss': avg_loss,
-        'positional_error': avg_positional_error,
-        'angular_error': avg_angular_error
+        'loss': loss.item(),
+        'positional_error': total_positional_error,
+        'angular_error': total_angular_error,
+        'valid_frames': total_valid_frames
     }
+
 
 
 def evaluate(model, dataloader, criterion, device):
@@ -432,9 +500,13 @@ def run_experiment(config: TrainConfig,
     model = AudioPoseModel(config=config).to(device)
     criterion = pose_6dof_loss
     optimizer = torch.optim.Adam(model.parameters(), lr=config.learning_rate, weight_decay=1e-4)
-    warmup_steps=10
+    
+    steps_per_epoch = math.ceil(len(train_dataset) / config.batch_size)
+    total_steps = steps_per_epoch * config.num_epochs
+    warmup_steps=(int)(0.025 * total_steps)
+
     warmup = LinearLR(optimizer=optimizer, start_factor=1e-8, end_factor=1.0, total_iters=warmup_steps)
-    cosine = CosineAnnealingLR(optimizer=optimizer, T_max=config.num_epochs - warmup_steps)
+    cosine = CosineAnnealingLR(optimizer=optimizer, T_max=total_steps - warmup_steps)
     scheduler = SequentialLR(optimizer=optimizer, schedulers=[warmup, cosine], milestones=[warmup_steps])
 
     # wandb (optional)
@@ -458,43 +530,95 @@ def run_experiment(config: TrainConfig,
 
     print(f"[{run_dir.name}] Starting training with config:\n{config}")
 
+    global_step = 0
+    eval_per_n_steps = 200
+    total_train_loss = 0.0
+    total_train_positional_error = 0.0
+    total_train_angular_error = 0.0
+    train_frames = 0
     for epoch in tqdm(range(config.num_epochs), desc=f"{run_dir.name}"):
-        train_metrics = train_epoch(model, train_loader, criterion, optimizer, device)
-        dev_metrics = evaluate(model, dev_loader, criterion, device)
-        scheduler.step()
+        for audio, pose, lengths in tqdm(train_loader):
+            global_step += 1
+            train_metrics = train_step(model, audio, pose, lengths, criterion, optimizer, scheduler, device)
+            total_train_loss += train_metrics['loss']
+            total_train_positional_error += train_metrics['positional_error']
+            total_train_angular_error += train_metrics['angular_error']
+            train_frames += train_metrics['valid_frames']
+            if global_step % eval_per_n_steps == 0:
+                dev_metrics = evaluate(model, dev_loader, criterion, device)
+                train_losses.append(total_train_loss / train_frames)
+                train_positional_errors.append(total_train_positional_error / train_frames)
+                train_angular_errors.append(total_train_angular_error / train_frames)
+                dev_losses.append(dev_metrics['loss'])
+                dev_positional_errors.append(dev_metrics['positional_error'])
+                dev_angular_errors.append(dev_metrics['angular_error']) 
+                
+                if WANDB_AVAILABLE:
+                    wandb.log({
+                        "epoch": epoch + 1,
+                        "step": global_step,
+                        "learning_rate": optimizer.param_groups[0]['lr'],
+                        "train_loss": total_train_loss / train_frames,
+                        "train_positional_error": total_train_positional_error / train_frames,
+                        "train_angular_error": total_train_angular_error / train_frames,
+                        "dev_loss": dev_metrics['loss'],
+                        "dev_positional_error": dev_metrics['positional_error'],
+                        "dev_angular_error": dev_metrics['angular_error'],
+                    })
 
-        train_losses.append(train_metrics['loss'])
-        train_positional_errors.append(train_metrics['positional_error'])
-        train_angular_errors.append(train_metrics['angular_error'])
-        dev_losses.append(dev_metrics['loss'])
-        dev_positional_errors.append(dev_metrics['positional_error'])
-        dev_angular_errors.append(dev_metrics['angular_error'])
+                print(f"[{run_dir.name}] Epoch {epoch+1}/{config.num_epochs}")
+                print(f"  Train Loss: {total_train_loss / train_frames:.6f}")
+                print(f"  Train Positional Error: {total_train_positional_error / train_frames:.4f} m")
+                print(f"  Train Angular Error: {total_train_angular_error / train_frames:.4f}°")
+                print(f"  Dev Loss: {dev_metrics['loss']:.6f}")
+                print(f"  Dev Positional Error: {dev_metrics['positional_error']:.4f} m")
+                print(f"  Dev Angular Error: {dev_metrics['angular_error']:.4f}°")
 
-        if WANDB_AVAILABLE:
-            wandb.log({
-                "epoch": epoch + 1,
-                "train_loss": train_metrics['loss'],
-                "train_positional_error": train_metrics['positional_error'],
-                "train_angular_error": train_metrics['angular_error'],
-                "dev_loss": dev_metrics['loss'],
-                "dev_positional_error": dev_metrics['positional_error'],
-                "dev_angular_error": dev_metrics['angular_error'],
-            })
+                if dev_metrics['loss'] < best_dev_loss:
+                    best_dev_loss = dev_metrics['loss']
+                    torch.save(model.state_dict(), best_model_path)
+                    print(f"  Saved best model to {best_model_path} (dev loss: {best_dev_loss:.6f})")
+                
+                train_frames = 0
+                total_train_loss = 0.0
+                total_train_positional_error = 0.0
+                total_train_angular_error = 0.0
 
-        print(f"[{run_dir.name}] Epoch {epoch+1}/{config.num_epochs}")
-        print(f"  Train Loss: {train_metrics['loss']:.6f}")
-        print(f"  Train Positional Error: {train_metrics['positional_error']:.4f} m")
-        print(f"  Train Angular Error: {train_metrics['angular_error']:.4f}°")
-        print(f"  Dev Loss: {dev_metrics['loss']:.6f}")
-        print(f"  Dev Positional Error: {dev_metrics['positional_error']:.4f} m")
-        print(f"  Dev Angular Error: {dev_metrics['angular_error']:.4f}°")
+    dev_metrics = evaluate(model, dev_loader, criterion, device)
+    train_losses.append(total_train_loss / train_frames)
+    train_positional_errors.append(total_train_positional_error / train_frames)
+    train_angular_errors.append(total_train_angular_error / train_frames)
 
-        if dev_metrics['loss'] < best_dev_loss:
-            best_dev_loss = dev_metrics['loss']
-            torch.save(model.state_dict(), best_model_path)
-            print(f"  Saved best model to {best_model_path} (dev loss: {best_dev_loss:.6f})")
 
-        print()
+    dev_losses.append(dev_metrics['loss'])
+    dev_positional_errors.append(dev_metrics['positional_error'])
+    dev_angular_errors.append(dev_metrics['angular_error']) 
+    
+    if WANDB_AVAILABLE:
+        wandb.log({
+            "epoch": epoch + 1,
+            "step": global_step,
+            "learning_rate": optimizer.param_groups[0]['lr'],
+            "train_loss": total_train_loss / train_frames,
+            "train_positional_error": total_train_positional_error / train_frames,
+            "train_angular_error": total_train_angular_error / train_frames,
+            "dev_loss": dev_metrics['loss'],
+            "dev_positional_error": dev_metrics['positional_error'],
+            "dev_angular_error": dev_metrics['angular_error'],
+        })
+
+    print(f"[{run_dir.name}] Epoch {epoch+1}/{config.num_epochs}")
+    print(f"  Train Loss: {total_train_loss / train_frames:.6f}")
+    print(f"  Train Positional Error: {total_train_positional_error / train_frames:.4f} m")
+    print(f"  Train Angular Error: {total_train_angular_error / train_frames:.4f}°")
+    print(f"  Dev Loss: {dev_metrics['loss']:.6f}")
+    print(f"  Dev Positional Error: {dev_metrics['positional_error']:.4f} m")
+    print(f"  Dev Angular Error: {dev_metrics['angular_error']:.4f}°")
+
+    if dev_metrics['loss'] < best_dev_loss:
+        best_dev_loss = dev_metrics['loss']
+        torch.save(model.state_dict(), best_model_path)
+        print(f"  Saved best model to {best_model_path} (dev loss: {best_dev_loss:.6f})")
 
     # Test with best model
     print(f"[{run_dir.name}] Evaluating best model on test set...")
