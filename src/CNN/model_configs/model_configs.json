@@ -16,7 +16,7 @@
       "num_epochs": 10,
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
-	  "Modification": "Small model, same architecture as BASELINE CNN."
+	  "Modification": "Small model: 3 CNN stages (less filters), 2 FC stages (less hidden units)."
     },
     {
       "model_name": "02_medium_model",
@@ -114,7 +114,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "3,666,695",
       "Estimated total size": "36.81 MB/input",
-	  "Modification": "Halfed number of hidden units in second and third FC stages and halfed number of filter in last CNN layer compared to model 05."
+	  "Modification": "Halved number of hidden units in second and third FC stages and halved number of filter in last CNN layer compared to model 05."
     },
     {
       "model_name": "07_sebastian_model_1_4",
@@ -134,7 +134,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "15,292,359",
       "Estimated total size": "85.25 MB/input",
-	  "Modification": "Moved to progressively larger strides compared to BASELINE model."
+	  "Modification": "Moved to progressively larger strides in the CNNs compared to BASELINE model."
     },
     {
       "model_name": "08_sebastian_model_1_5dropout",
@@ -446,7 +446,7 @@
       "learning_rate": 1e-5,
       "weight_decay": 1e-5,
       "trainable_params": "8,603,495, 40.94 MB/input",
-	  "Modification": "Compared to BASELINE: 2 extra CNN stages with smaller filtr sizes, 'same' padding. Skip max-pooling every second layer. Larger capacity FC stages."
+	  "Modification": "Compared to BASELINE: 2 extra CNN stages with smaller filter sizes, 'same' padding. Skip max-pooling every second layer. Larger capacity FC stages."
     },
     {
       "model_name": "24_LLM_lightweight_mobile_1",
@@ -465,7 +465,7 @@
       "learning_rate": 2e-4,
       "weight_decay": 5e-6,
       "trainable_params": "736,071, 4.13 MB/input",
-	  "Modification": "Compared to BASELINE: half number of filters with 9 times smaller filter/kernel sizes and 'same' padding. Striging of 2-3 at every CNN and max-pool layer."
+	  "Modification": "Compared to BASELINE: half number of filters with 9 times smaller filter/kernel sizes and 'same' padding. Striding of 2-3 at every CNN and max-pool layer."
     },
     {
       "model_name": "25_CNN2_paper_with_stride",

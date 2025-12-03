@@ -15,7 +15,8 @@
       "dropout": 0.2,
       "num_epochs": 100,
       "learning_rate": 1e-4,
-      "weight_decay": 1e-5
+      "weight_decay": 1e-5,
+	  "Modification": "Small model, same architecture as BASELINE CNN."
     },
     {
       "model_name": "02_medium_model",
@@ -32,7 +33,8 @@
       "dropout": 0.3,
       "num_epochs": 100,
       "learning_rate": 1e-4,
-      "weight_decay": 1e-5
+      "weight_decay": 1e-5,
+	  "Modification": "Medium model (i.e., larger than 01, smaller than BASELINE), same architecture as BASELINE CNN."
     },
     {
       "model_name": "03_sebastian_model_1",
@@ -51,7 +53,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "15,292,359",
-      "Estimated total size": "85.25 MB/input"
+      "Estimated total size": "85.25 MB/input",
+	  "Rationale": "BASELINE CNN model, as described in the report."
     },
     {
       "model_name": "04_sebastian_model_1_1",
@@ -70,7 +73,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "6,248,007",
-      "Estimated total size": "47.19 MB/input"
+      "Estimated total size": "47.19 MB/input",
+	  "Modification": "Reduce number of filters and increase max-pooling stride in the last CNN stage compared to BASELINE. Also removed zero padding in first CNN layer."
     },
     {
       "model_name": "05_sebastian_model_1_2",
@@ -89,7 +93,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "4,812,615",
-      "Estimated total size": "41.70 MB/input"
+      "Estimated total size": "41.70 MB/input",
+	  "Modification": "Halved number of hidden units in the FC stages compared to model 04 and halved number of filter in last CNN layer."
     },
     {
       "model_name": "06_sebastian_model_1_3",
@@ -108,7 +113,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "3,666,695",
-      "Estimated total size": "36.81 MB/input"
+      "Estimated total size": "36.81 MB/input",
+	  "Modification": "Halfed number of hidden units in second and third FC stages and halfed number of filter in last CNN layer compared to model 05."
     },
     {
       "model_name": "07_sebastian_model_1_4",
@@ -127,7 +133,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "15,292,359",
-      "Estimated total size": "85.25 MB/input"
+      "Estimated total size": "85.25 MB/input",
+	  "Modification": "Moved to progressively larger strides compared to BASELINE model."
     },
     {
       "model_name": "08_sebastian_model_1_5dropout",
@@ -146,7 +153,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "15,292,359",
-      "Estimated total size": "85.25 MB/input"
+      "Estimated total size": "85.25 MB/input",
+	  "Modification": "Same as BASELINE model, but increased dropout probability in all layers."
     },
     {
       "model_name": "09_sebastian_model_1_6weightDecay",
@@ -223,8 +231,6 @@
       "weight_decay": 1e-5,
       "trainable_params": "3,320,263",
       "Estimated total size": "17.22 MB/input",
-      "comment": "Optimized version of sebastian_model_1 with better architectural choices. Extra CNN layer, smoother decrease, consistent stride, 'same' padding, more powerful FC.",
-      "hypothesis": "Same capacity as original but with more balanced downsampling"
     },
     {
       "model_name": "13_sebastian_model_2",
@@ -353,9 +359,7 @@
       "num_epochs": 100,
       "learning_rate": 1e-4,
       "weight_decay": 1e-4,
-      "trainable_params": "12,948,103, 52.32 MB/input",
-      "comment": "Fast inference with wide filters but fewer layers",
-      "hypothesis" : "Wide kernels can capture long-range temporal patterns with less depth"
+      "trainable_params": "12,948,103, 52.32 MB/input"
     },
     {
       "model_name": "20_LLM_deep_residual_style_1",
@@ -373,9 +377,7 @@
       "num_epochs": 100,
       "learning_rate": 5e-4,
       "weight_decay": 1e-5,
-      "trainable_params": "3,332,903, 19.98 MB/input",
-      "comment": "Inspired by ResNet: deeper network with gradual channel growth. Padding = same. Stride every other layer. Pool after stride.",
-      "hypothesis": "Alternating kernel sizes capture multiple temporal scales simultaneously"
+      "trainable_params": "3,332,903, 19.98 MB/input"
     },
     {
       "model_name": "21_LLM_multi_scale_receptive_1",
@@ -393,9 +395,7 @@
       "num_epochs": 100,
       "learning_rate": 1e-4,
       "weight_decay": 2e-5,
-      "trainable_params": " 2,687,879, 13.62 MB/input",
-      "comment": "Varying kernel sizes to capture multi-scale temporal features. Alternate small/large CNN filter size. Mixed strides.",
-      "hypothesis" : "Gradual depth increase with small kernels mimics residual networks"
+      "trainable_params": " 2,687,879, 13.62 MB/input"
     },
     {
       "model_name": "22_LLM_aggressive_early_downsample_1",
@@ -413,9 +413,7 @@
       "num_epochs": 100,
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
-      "trainable_params": "4,124,551, 17.45 MB/input",
-      "comment": "Quick dimensionality reduction followed by feature refinement. Skip some pooling.",
-      "hypothesis" : "Early aggressive downsampling reduces computation while preserving key features."
+      "trainable_params": "4,124,551, 17.45 MB/input"
     },
     {
       "model_name": "23_LLM_large_receptive_field_1",
@@ -433,9 +431,7 @@
       "num_epochs": 100,
       "learning_rate": 1e-5,
       "weight_decay": 1e-5,
-      "trainable_params": "8,603,495, 40.94 MB/input",
-      "comment": "Simulating dilated convolutions with large kernels and minimal pooling.",
-      "hypothesis" : "Large receptive fields capture long-range dependencies in audio."
+      "trainable_params": "8,603,495, 40.94 MB/input"
     },
     {
       "model_name": "24_LLM_lightweight_mobile_1",
@@ -453,9 +449,7 @@
       "num_epochs": 100,
       "learning_rate": 2e-4,
       "weight_decay": 5e-6,
-      "trainable_params": "736,071, 4.13 MB/input",
-      "comment": "Inspired by MobileNet: efficient depth-wise separable-like structure. Compact FC, lower dropout/regularization. Higher LR for small model.",
-      "hypothesis" : "Minimal parameters can still capture essential pose features."
+      "trainable_params": "736,071, 4.13 MB/input"
     },
     {
       "model_name": "25_CNN2_paper_with_stride",
@@ -473,9 +467,7 @@
       "num_epochs": 100,
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
-      "trainable_params": "33,913,863, 135.36 MB/input",
-      "comment": "Inspired by CNN2: had to include strides, otherwise trhe model would have had 1,265,012,231 params!.",
-      "hypothesis" : "Check no max pooling, as in [cnn2] paper."
+      "trainable_params": "33,913,863, 135.36 MB/input"
     }
   ]
 }

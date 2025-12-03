@@ -18,7 +18,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "1,525,079",
-      "Estimated total size": "84.32 MB/input"
+      "Estimated total size": "84.32 MB/input",
+	  "Modification": "Small model: 3 CNN stages (less filters), 2 FC stages (less hidden units)."
     },
     {
       "model_name": "02_medium_model_2d",
@@ -38,7 +39,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "24,980,263",
-      "Estimated total size": "310.33 MB/input"
+      "Estimated total size": "310.33 MB/input",
+	  "Modification": "Medium model: smaller #filters, but larger filter sizescompared to BASELINE 2D CNN."
     },
     {
       "model_name": "03_sebastian_model_1_2d",
@@ -58,7 +60,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "44,914,631",
-      "Estimated total size": "444.15 MB/input"
+      "Estimated total size": "444.15 MB/input",
+	  "Rationale": "BASELINE 2D CNN model, adapted to spctogram case."
     },
     {
       "model_name": "04_sebastian_model_1_1_2d",
@@ -78,7 +81,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "44,324,423",
-      "Estimated total size": "415.93 MB/input"
+      "Estimated total size": "415.93 MB/input",
+	  "Modification": "Reduce number of filters and increase max-pooling stride in the last CNN stage compared to BASELINE. Also removed zero padding in first CNN layer."
     },
     {
       "model_name": "05_sebastian_model_1_2_2d",
@@ -98,7 +102,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "44,166,983",
-      "Estimated total size": "415.32 MB/input"
+      "Estimated total size": "415.32 MB/input",
+	  "Modification": "Halved number of hidden units in the FC stages compared to model 04 and halved number of filter in last CNN layer. Reduced #filter in last CNN stage."
     },
     {
       "model_name": "06_sebastian_model_1_3_2d",
@@ -118,7 +123,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "17,478,023",
-      "Estimated total size": "343.75 MB/input"
+      "Estimated total size": "343.75 MB/input",
+	  "Modification": "Halved number of hidden units in second and third FC stages and halved number of filter in last CNN layer compared to model 05."
     },
     {
       "model_name": "07_sebastian_model_1_4_2d",
@@ -138,7 +144,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "21,690,311",
-      "Estimated total size": "1166.80 MB/input"
+      "Estimated total size": "1166.80 MB/input",
+	  "Modification": "Moved to progressively larger strides in CNN layers; reduced filter sizes in first 2 CNN layers."
     },
     {
       "model_name": "08_sebastian_model_1_5dropout_2d",
@@ -158,7 +165,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "44,914,631",
-      "Estimated total size": "444.15 MB/input"
+      "Estimated total size": "444.15 MB/input",
+	  "Modification": "Same as BASELINE model, but increased dropout probability in all layers."
     },
     {
       "model_name": "09_sebastian_model_1_6weightDecay_2d",
@@ -198,7 +206,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 3e-4,
       "trainable_params": "44,914,631",
-      "Estimated total size": "444.15 MB/input"
+      "Estimated total size": "444.15 MB/input",
+	  "Modification": "Same as BASELINE model, but increased weight decay in the ADAM optimizer."
     },
     {
       "model_name": "11_sebastian_model_1_8same_padding_2d",
@@ -218,7 +227,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "44,914,631",
-      "Estimated total size": "485.98 MB/input"
+      "Estimated total size": "485.98 MB/input",
+	  "Modification": "Same as BASELINE model, but increased both dropout probability for all layers and weight decay in the ADAM optimizer."
     },
     {
       "model_name": "12_sebastian_model_1_9_llm_balanced_power_opt_2d",
@@ -239,8 +249,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "44,876,615",
       "Estimated total size": "1967.79 MB/input",
-      "comment": "Optimized version of sebastian_model_1 with better architectural choices. Smaller kernels and extended in time",
-      "hypothesis": "Same capacity as original but with more balanced downsampling"
+	  "Modification": "Smaller kernels in CNNs, with smaller frequency domain kernels. Larger FC layers. 2-3 stride in max-pooling, stride 2 in the temporal dimension in the CNN layers"
     },
     {
       "model_name": "13_sebastian_model_2_2d",
@@ -260,7 +269,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "6,990,919 trainable params",
-      "Estimated total size": "1112.02 MB/input. Needed aggressive pooling in the last layer, otherwise it would not have fitted into any memory!"
+      "Estimated total size": "1112.02 MB/input. Needed aggressive pooling in the last layer, otherwise it would not have fitted into any memory!",
+	  "Modification": "-1 CNN stage, smaller FC stages, constant CNN stride of 2"
     },
     {
       "model_name": "14_sebastian_model_3_2d",
@@ -280,7 +290,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "31,160,007",
-      "Estimated total size": "1002.03 MB/input."
+      "Estimated total size": "1002.03 MB/input.",
+	  "Modification": "Compared to BASELINE: added one more FC stage."
     },
     {
       "model_name": "15_sebastian_model_4_2d",
@@ -300,7 +311,8 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "186,350,791",
-      "Estimated total size": "4944.20 MB/input"
+      "Estimated total size": "4944.20 MB/input",
+	  "Modification": "Compared to BASELINE: added two more CNN stages; lowered FC layer #hidden units to keep size in place"
     },
     {
       "model_name": "16_LLM_large_capacity_baseline_1_spectogram",
@@ -321,8 +333,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "6,106,055",
       "Estimated total size": "1943.51 MB/input",
-      "comment": "Spectrogram equivalent of mag/group-delay baseline. Balanced freq/time kernels.",
-      "hypothesis": "Similar capacity but processes 2D frequency-time patches rather than 1D time slices"
+	  "Modification": "Compared to BASELINE: one more CNN stage, but operating at half filter sizes with 'same' padding. One more FC stage, with third FC stage smaller. More balanced strides across stages in max pool. CNN filter size in frequency are smaller."
     },
     {
       "model_name": "17_LLM_ultra_deep_and_wide_1_spectogram",
@@ -343,8 +354,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "6,838,343 trainable params",
       "Estimated total size": "3833.78 MB/input",
-      "comment": "Spectrogram equivalent of ultra deep and wide model. 6 layers with diamond channel pattern (128→256→64). Conservative pooling for feature preservation.",
-      "hypothesis": "Very deep networks (6 layers) with diamond-shaped capacity learn hierarchical frequency-time features at multiple abstraction levels. Wide middle captures complex patterns."
+	  "Modification": "Compared to BASELINE: two more CNN stage, but operating at half filter sizes with 'same' padding. One more FC stage. More balanced strides across stages in max pool. CNN filter size in frequency are smaller."
     },
     {
       "model_name": "18_LLM_multi_scale_high_res_1_spectogram",
@@ -365,8 +375,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "25,727,815 trainable params",
       "Estimated total size": "3449.02 MB/input",
-      "comment": "Spectrogram equivalent of multi-scale high-res model. Higher capacity with pyramid channels (96→192→96). Less aggressive pooling for high resolution.",
-      "hypothesis": "Multi-scale frequency-time kernels capture features at multiple resolutions. Higher capacity improves localization accuracy."
+	  "Modification": "Compared to BASELINE: one more CNN and FC stage, CNNs  operating at half filter sizes with 'same' padding. Max pool striding constant at 2. CNN filter size in frequency are smaller"
     },
     {
       "model_name": "19_LLM_wide_shallow_fast_1_spectogram",
@@ -387,8 +396,7 @@
       "weight_decay": 1e-4,
       "trainable_params": "43,455,111 trainable params",
       "Estimated total size": "1756.78 MB/input",
-      "comment": "Spectrogram equivalent of wide shallow fast model. Only 3 layers with very wide kernels for efficient inference. Aggressive downsampling.",
-      "hypothesis": "Wide frequency-time kernels (7×128 → 3×32) capture long-range patterns with minimal depth. Fast inference for real-time applications."
+	  "Modification": "Compared to BASELINE: one less CNN and FC stage, CNNs operating at double filter sizes in time with 'same' padding, but smaller in frequency. Larger strides in maxpool layers."
     },
     {
       "model_name": "20_LLM_deep_residual_style_1_spectogram",
@@ -409,8 +417,7 @@
       "weight_decay": 1e-5,
       "trainable_params": "100,932,263 trainable params",
       "Estimated total size": "3347.17 MB/input",
-      "comment": "Spectrogram equivalent of ResNet-inspired model. 8 layers with paired blocks (32-64-64, 128-128, 256-256, 512). Alternating stride/pool pattern. Small consistent 3×3 kernels in deeper layers.",
-      "hypothesis": "ResNet-style depth with paired layers and gradual channel growth learns robust hierarchical spectro-temporal features. Small kernels preserve fine-grained frequency-time patterns."
+      "Modification": "Compared to BASELINE: deep model with 8 CNN stages growing from 32 to 512 filters of small kernel size (7 down to 3). Alternating strides (2,1) and max-pooling (2,0). Slightly larger learning rate"
     },
     {
       "model_name": "21_LLM_multi_scale_receptive_1_spectogram",
@@ -431,8 +438,7 @@
       "weight_decay": 2e-5,
       "trainable_params": "48,048,263 trainable params",
       "Estimated total size": "987.92 MB/input",
-      "comment": "Spectrogram equivalent of multi-scale receptive model. Alternating small/large 2D kernels create diverse receptive fields. Small: (5×11, 3×9, 3×7), Large: (7×33, 5×27, 3×21). Mixed stride pattern for efficient downsampling.",
-      "hypothesis": "Alternating frequency-time kernel sizes (small for local details, large for global context) capture multi-scale spectro-temporal patterns. Parallel processing of fine-grained and coarse-grained features improves localization."
+	  "Modification": "Compared to BASELINE: 6 CNN stages growing from 64 to 256 filters, with alternating filter sizes (larger,smaller) but a max filter size of 33. Alternative strides in both CNN and max-pool layers. 1 extra FC stage."
     },
     {
       "model_name": "22_LLM_aggressive_early_downsample_1_spectogram",
@@ -452,8 +458,7 @@
       "learning_rate": 1e-4,
       "weight_decay": 1e-5,
       "trainable_params": "23,875,463, 514.82 MB/input",
-      "comment": "Spectrogram equivalent of aggressive early downsample model. Very aggressive first layer: stride(2×8) + pool(2×4) = 4×32 reduction! Then stride(2×4) = 8×128 total. Quick dimensionality reduction followed by high-capacity refinement (512 channels). Skips pooling on layers 1 and 3.",
-      "hypothesis": "Early aggressive 2D downsampling reduces computation dramatically while large initial kernel (11×32) captures essential spectro-temporal patterns. Wide channels (512) compensate for spatial information loss. Efficient for real-time applications."
+      "Modification": "Compared to BASELINE: 1 extra CNN stage. Generally larger number of filters, but lower filter sizes and 'same' padding. Strong striding in the first CNN layers. Some skip max-pooling."
     },
     {
       "model_name": "23_LLM_large_receptive_field_1_spectogram",
@@ -473,8 +478,7 @@
       "learning_rate": 1e-5,
       "weight_decay": 1e-5,
       "trainable_params": "53,462,887, 1717.33 MB/input",
-      "comment": "Spectrogram equivalent of large receptive field model. Very large 2D kernels simulate dilated convolutions. Paired layers with decreasing sizes: (11×33, 9×33), (7×17, 5×17), (3×9, 3×9). Captures long-range frequency-time dependencies. Conservative pooling preserves spatial details.",
-      "hypothesis": "Large 2D receptive fields (up to 11×33) capture long-range spectro-temporal dependencies spanning multiple harmonics and extended time windows. Simulates dilated convolutions for efficient multi-scale feature extraction without parameter explosion."
+	  "Modification": "Compared to BASELINE: 2 extra CNN stages with smaller filter sizes, 'same' padding. Skip max-pooling every second layer. Larger capacity FC stages."
     },
     {
         "model_name": "24_LLM_optimized_v3_aggressive_time_pooling",
@@ -494,8 +498,7 @@
         "learning_rate": 1e-4,
         "weight_decay": 2e-5,
         "trainable_params": "28,156,711, 2616.50 MB/input",
-        "comment": "Large time kernels for long-range patterns. Aggressive time pooling. Conservative freq pooling.",
-        "hypothesis": "Speech has more temporal than spectral redundancy"
+		"Modification": "Compared to BASELINE: CNN stages: increased number of filters, smaller filter sizes and 'same' padding.  Larger capacity FC stages. Double striding in the time domain."
       },
     {
       "model_name": "25_CNN2_paper_with_stride_spectogram",
@@ -536,8 +539,7 @@
         "learning_rate": 1e-4,
         "weight_decay": 1e-5,
         "trainable_params": "12,076,103,  1999.42 MB/input",
-        "comment": "Larger freq kernels to capture formants and harmonics. Balanced time kernels.",
-        "hypothesis": "Frequency patterns (formants) are key for speaker localization"
+		"Modification": "Compared to BASELINE: +1 CNN stage, slightly larger FC stages, smaller CNN kernels, 2-3 max-pooling strides, larger CNN filters and CNN striding in time domain."
       },
       {
         "model_name": "27_LLM_optimized_v6_multi_scale_temporal",
@@ -557,8 +559,7 @@
         "learning_rate": 8e-5,
         "weight_decay": 2e-5,
         "trainable_params": "26,776,199,   2086.92 MB/input",
-        "comment": "Constant small freq kernels (3) with decreasing time kernels (65→3). Deep network.",
-        "hypothesis": "Multi-scale temporal features at different resolutions capture motion patterns"
+		"Modification": "Compared to BASELINE: +2 CNN stages, double #hidden units in FC stages, strong temporal striding in CNN layers, 2-3 strining in max-pooling layers, smaller learning rate. CNN kernels are larger in time domain."
       }
   ]
 }
