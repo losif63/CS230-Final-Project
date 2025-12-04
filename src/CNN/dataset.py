@@ -585,11 +585,15 @@ class AudioPoseDataset(Dataset):
                 for group_string in root_groups:
                     audio_frames_session = f[f"{group_string}/audio_frames"][...]
                     wearer_pose_session = f[f"{group_string}/wearer_pose"][...]
+                    if "is_upside_down" in f[f"{group_string}"].keys():
+                        is_upside_down_array_sessions = f[f"{group_string}/is_upside_down"][...]
+                    else:
+                        is_upside_down_array_sessions = None
                     audio_arrays_sessions.append(audio_frames_session)
                     wearer_pose_arrays_sessions.append(wearer_pose_session)
         else:
             print(f" Cached file missing {fn_}! Building dataset manually!")
-            audio_arrays_sessions, wearer_pose_arrays_sessions, session_ids = (
+            audio_arrays_sessions, wearer_pose_arrays_sessions, is_upside_down_array_sessions, session_ids = (
                 self._build_dataset()
             )
 
@@ -604,9 +608,14 @@ class AudioPoseDataset(Dataset):
                     session_group.create_dataset(
                         "wearer_pose", data=wearer_pose_arrays_sessions[idx]
                     )
+                    session_group.create_dataset(
+                        "is_upside_down", data=is_upside_down_array_sessions[idx]
+                    )
 
         self.all_audio_frames = np.concatenate(audio_arrays_sessions, axis=0)
         self.all_wearer_pose_6dof = np.concatenate(wearer_pose_arrays_sessions, axis=0)
+        if is_upside_down_array_sessions is not None:
+            self.all_is_upside_down = np.concatenate(is_upside_down_array_sessions, axis=0)
         assert self.all_audio_frames.shape[0] == self.all_wearer_pose_6dof.shape[0]
 
         print(f"   Loaded audio data: {self.all_audio_frames.shape}.")
@@ -753,6 +762,7 @@ class AudioPoseDataset(Dataset):
 
         audio_arrays_sessions = []
         wearer_pose_arrays_sessions = []
+        is_upside_down_array_sessions = []
         session_ids = []
         for session_id in tqdm(
             self.session_ids,
@@ -769,6 +779,7 @@ class AudioPoseDataset(Dataset):
 
             audio_frames_session_list = []
             wearer_pose_6dof_session_list = []
+            is_upside_down_session_list = []
             for wave_file_idx, wav_file in enumerate(wav_files):
                 try:
                     audio, _ = self.loader.load_audio(wav_file)
@@ -798,7 +809,7 @@ class AudioPoseDataset(Dataset):
                     ):
                         raise ValueError(f"Poses loading error!!")
 
-                    wearer_pose_6dof = self.loader.extract_wearer_6dof(poses_data)
+                    wearer_pose_6dof, is_upside_down = self.loader.extract_wearer_6dof(poses_data)
                     if wearer_pose_6dof is None:
                         raise ValueError("Wearer pose extraction returned None!")
 
@@ -864,6 +875,8 @@ class AudioPoseDataset(Dataset):
                         wearer_pose_6dof_session_list.append(
                             wp_[None, :]
                         )  # n_frames x (7)
+                        iud_ = np.array([is_upside_down[frame_idx].astype(np.float32)])
+                        is_upside_down_session_list.append( iud_[None, :] )
 
                 except Exception as e:
                     raise ValueError(f"\n Error processing {wav_file.name}: {e}")
@@ -874,13 +887,18 @@ class AudioPoseDataset(Dataset):
             wearer_pose_session_array = np.concatenate(
                 wearer_pose_6dof_session_list, axis=0
             )
+            is_upside_down_session_array = np.concatenate(
+                is_upside_down_session_list, axis=0
+            )
+            
 
             # Build big list with all sessions:
             audio_arrays_sessions.append(audio_frames_session_array)
             wearer_pose_arrays_sessions.append(wearer_pose_session_array)
+            is_upside_down_array_sessions.append(is_upside_down_session_array)
             session_ids.append(session_id)
         self.loader.print_stats()
-        return audio_arrays_sessions, wearer_pose_arrays_sessions, session_ids
+        return audio_arrays_sessions, wearer_pose_arrays_sessions, is_upside_down_array_sessions, session_ids
 
     def _apply_fft_transform(self, audio: np.ndarray) -> np.ndarray:
         """

@@ -106,6 +106,7 @@ class EasyComDataLoader:
         # (position + rotation) for glasses wearer
         n_frames = len(poses_data)
         pose_6dof = np.zeros((n_frames, 7), dtype=np.float32)
+        is_upside_down = np.zeros(n_frames, dtype=np.bool_)
 
         for frame_idx, frame in enumerate(poses_data):
             found_wearer = False
@@ -118,11 +119,12 @@ class EasyComDataLoader:
                     pose_6dof[frame_idx, 4] = participant["Quaternion_Y"]
                     pose_6dof[frame_idx, 5] = participant["Quaternion_Z"]
                     pose_6dof[frame_idx, 6] = participant["Quaternion_W"] #[x, y, z, qx, qy, qz, qw]
+                    is_upside_down[frame_idx] = participant["isUpSideDown"]
                     found_wearer = True
                     break
             assert(found_wearer)
 
-        return pose_6dof
+        return pose_6dof, is_upside_down
 
     def get_all_participant_ids(self, poses_data: List[dict]) -> List[int]:
         '''
