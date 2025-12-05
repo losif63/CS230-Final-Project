@@ -4,7 +4,7 @@ from typing import List
 
 
 class Config:    
-    DATA_ROOT = Path("data/Main") 
+    DATA_ROOT = Path("/Users/preranarane/EasyComDataset/Main") 
     CHECKPOINT_DIR = Path("./checkpoints")    
     FS_AUDIO = 48000
     FS_HEAD_TRACKING = 20.0
@@ -20,7 +20,23 @@ class Config:
     # Audio channels
     USE_CHANNELS = [0, 1, 2, 3, 4, 5]  # All 6 microphones
     FILTER_SILENCE = True
-
+    
+    # Model architecture
+    N_CHANNELS = len(USE_CHANNELS)
+    HIDDEN_DIMS = [256, 128, 64] #can be updated
+    OUTPUT_DIM = 7  # [x, y, z, qx, qy, qz, qw]
+    DROPOUT = 0.3
+    
+    # Training parameters
+    BATCH_SIZE = 32
+    NUM_EPOCHS = 10
+    LEARNING_RATE = 1e-4
+    WEIGHT_DECAY = 1e-5
+    NUM_WORKERS = 4 
+    
+    DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')    
+    SEED = 42
+    
     @classmethod
     def set_data_root(cls, path: str):
         cls.DATA_ROOT = Path(path)
