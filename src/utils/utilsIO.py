@@ -42,7 +42,7 @@ import json
 import time
 import datetime
 
-import playback
+from . import playback
 
 from matplotlib import pyplot as plt
 
@@ -483,7 +483,7 @@ if __name__ == '__main__':
     #===========================================================================
     # Read main dataset example:
     #===========================================================================
-    path_to_dataset = r"D:\Temp_S230_Database\Main"
+    path_to_dataset = "data/Main"
     mic_array_audio_path, array_orientation_dir, speech_transcriptions_dir = get_paths(path_to_dataset)
     
     fs_head_tracking = get_head_tracking_fs()
@@ -570,7 +570,7 @@ if __name__ == '__main__':
                                 
                 
                 # If you want to listen to 2 channels: here, the binaural channels 4 and 5:
-                #playback.playback_sterero_signal(data[0:4*fs, 4:6], fs)
+                playback.playback_sterero_signal(data[0:4*fs, 4:6], fs)
                 
                 # Feel free to remove this and loop all the way:
                 print("Quitting loop!")
