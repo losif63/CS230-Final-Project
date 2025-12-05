@@ -25,6 +25,7 @@ except ImportError:
 # Import model components
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
+sys.path.append(str(Path(__file__).parent.parent.parent))
 from models.feature_extractors import LinearExtractor, MLPExtractor
 from models.sequence import LSTMSeq, TransformerSeq
 from models.heads import LinearHead, MLPHead
