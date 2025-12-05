@@ -30,7 +30,6 @@ def compute_metrics(pred: torch.Tensor, target: torch.Tensor) -> Dict[str, float
     pred_quat = pred[:, 3:]
     target_quat = target[:, 3:]
 
-    # Handle q/-q ambiguity for rotation error
     quat_error_pos = (pred_quat - target_quat).abs()
     quat_error_neg = (pred_quat + target_quat).abs()
     quat_error = torch.min(quat_error_pos, quat_error_neg)
