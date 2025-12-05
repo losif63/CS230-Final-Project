@@ -12,6 +12,7 @@ import numpy as np
 import random
 from tqdm import tqdm
 from typing import Dict
+import argparse
 
 # Try to import wandb, but make it optional
 try:
@@ -208,90 +209,6 @@ def collate_fn(batch):
     
     return audio_batch, pose_batch, lengths
 
-# Deprecated
-# def train_epoch(model, dataloader, criterion, optimizer, device):
-#     """Train for one epoch."""
-#     model.train()
-#     total_loss = 0.0
-#     total_positional_error = 0.0
-#     total_angular_error = 0.0
-#     total_valid_frames = 0
-#     num_batches = 0 
-    
-#     for audio, pose, lengths in tqdm(dataloader):
-#         # Move to device (non_blocking for faster transfer if using GPU)
-#         audio = audio.to(device, non_blocking=True)
-#         pose = pose.to(device, non_blocking=True)
-#         lengths = lengths.to(device, non_blocking=True)
-        
-#         # Forward pass
-#         optimizer.zero_grad()
-#         output = model(audio, lengths)
-        
-#         # Compute loss (only on non-padded and valid frames)
-#         # Create mask for valid frames:
-#         # 1. Not padded (pose is not all zeros)
-#         # 2. Pose norm >= 0.1 (filter out near-zero/invalid poses, like baseline)
-#         pose_norm = torch.norm(pose, dim=-1)  # (batch, seq_len)
-#         not_padded = (pose.abs().sum(dim=-1) > 1e-6)  # (batch, seq_len)
-#         is_valid_pose = (pose_norm >= 0.1)  # Filter low-norm poses like baseline
-#         valid_mask = not_padded & is_valid_pose  # (batch, seq_len)
-#         if valid_mask.sum() > 0:
-#             valid_output = output[valid_mask]  # (N_valid, 7)
-#             valid_pose = pose[valid_mask]      # (N_valid, 7)
-#             # Only compute loss on valid frames
-#             loss = criterion(valid_output, valid_pose)
-#             # Compute positional error (Euclidean distance for first 3 dimensions)
-#             pred_pos = valid_output[:, :3]  # (N_valid, 3)
-#             gt_pos = valid_pose[:, :3]      # (N_valid, 3)
-#             positional_errors = torch.norm(pred_pos - gt_pos, dim=1)  # (N_valid,)
-#             total_positional_error += positional_errors.sum().item()
-            
-#             # Compute angular error (angle between quaternions)
-#             pred_quat = valid_output[:, 3:]  # (N_valid, 4) [x, y, z, w]
-#             gt_quat = valid_pose[:, 3:]      # (N_valid, 4) [x, y, z, w]
-            
-#             # Compute dot product (clamp to [-1, 1] for numerical stability)
-#             dot_product = torch.clamp(torch.sum(pred_quat * gt_quat, dim=1), -1.0, 1.0)
-            
-#             # Angular error in radians (using 2 * arccos(|dot|) for quaternion distance)
-#             # We use absolute value to handle quaternion double-cover (q and -q represent same rotation)
-#             angular_errors_rad = 2 * torch.acos(torch.abs(dot_product))
-            
-#             # Convert to degrees
-#             angular_errors_deg = torch.rad2deg(angular_errors_rad)
-#             total_angular_error += angular_errors_deg.sum().item()
-            
-#             total_valid_frames += valid_mask.sum().item()
-
-            
-#         else:
-#             loss = torch.tensor(0.0, device=device, requires_grad=True)
-        
-#         # Backward pass
-#         loss.backward()
-#         optimizer.step()
-        
-#         total_loss += loss.item()
-#         num_batches += 1
-        
-#         # Explicitly delete tensors to free memory
-#         del audio, pose, lengths, output, loss, valid_mask
-    
-#     # Clear CUDA cache periodically (every epoch)
-#     if device.type == 'cuda':
-#         torch.cuda.empty_cache()
-#     # Compute averages
-#     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
-#     avg_positional_error = total_positional_error / total_valid_frames if total_valid_frames > 0 else 0.0
-#     avg_angular_error = total_angular_error / total_valid_frames if total_valid_frames > 0 else 0.0
-
-#     return {
-#         'loss': avg_loss,
-#         'positional_error': avg_positional_error,
-#         'angular_error': avg_angular_error
-#     }
-
 def train_step(model, audio, pose, lengths, criterion, optimizer, scheduler, device):
     """Train for one step."""
     model.train()
@@ -382,6 +299,7 @@ def evaluate(model, dataloader, criterion, device):
             # Move to device (non_blocking for faster transfer if using GPU)
             audio = audio.to(device, non_blocking=True)
             pose = pose.to(device, non_blocking=True)
+            lengths = lengths.to(device, non_blocking=True)
             
             # Forward pass
             output = model(audio, lengths)
@@ -661,7 +579,7 @@ def run_experiment(config: TrainConfig,
         save_path=run_dir / "training_curve.png"
     )
 
-def main():
+def main(args):
     # Set random seed for reproducibility
     set_seed(63)
     
@@ -671,42 +589,45 @@ def main():
     dev_dir = data_root / Path("Dev")
     test_dir = data_root / Path("Test")
     
+    window_length = args.window_length
+
+    # Create datasets
+    print("Loading datasets...")
+    train_dataset = AudioPoseDataset(train_dir, window_length)
+    dev_dataset = AudioPoseDataset(dev_dir, window_length)
+    test_dataset = AudioPoseDataset(test_dir, window_length)
+    
     for seq, seqname in ((LSTMSeq, "LSTM"), (TransformerSeq, "Transformer")):
-        for window_length in [50, 100, 200]:
-            # Create datasets
-            print("Loading datasets...")
-            train_dataset = AudioPoseDataset(train_dir, window_length)
-            dev_dataset = AudioPoseDataset(dev_dir, window_length)
-            test_dataset = AudioPoseDataset(test_dir, window_length)
-            
-            base_config = {
-                "batch_size": 32,
-                "learning_rate": 1e-4,
-                # "hidden_dim": 16,
-                # "num_layers": 2,
-                "dropout": 0.1,
-                "num_epochs": 1,
-                "feature_extractor": MLPExtractor,
-                "sequence_model": seq,
-                "head": MLPHead,
-            }
+        base_config = {
+            "batch_size": 32,
+            "learning_rate": 1e-4,
+            "dropout": 0.1,
+            "num_epochs": 1,
+            "feature_extractor": MLPExtractor,
+            "sequence_model": seq,
+            "head": MLPHead,
+        }
 
-            layers = [1, 2, 4, 8]
-            hidden_dims = [64, 128, 256]
+        layers = [1, 2, 4, 8]
+        # hidden_dims = [64, 128, 256]
+        hidden_dims = [512]
 
-            runs_root = Path(f"runs_window_{window_length}")
-            for layer in layers:
-                for dim in hidden_dims:
-                    cfg_dict = dict(base_config)
-                    cfg_dict["num_layers"] = layer
-                    cfg_dict["hidden_dim"] = dim 
-                    config = TrainConfig(cfg_dict)
+        runs_root = Path(f"runs_window_{window_length}")
+        for layer in layers:
+            for dim in hidden_dims:
+                cfg_dict = dict(base_config)
+                cfg_dict["num_layers"] = layer
+                cfg_dict["hidden_dim"] = dim 
+                config = TrainConfig(cfg_dict)
 
-                    run_name = f"MLPExtractor_{layer}Layer{seqname}_MLPHead/dim_{dim}"
-                    run_dir = runs_root / run_name
+                run_name = f"MLPExtractor_{layer}Layer{seqname}_MLPHead/dim_{dim}"
+                run_dir = runs_root / run_name
 
-                    run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
+                run_experiment(config, train_dataset, dev_dataset, test_dataset, run_dir)
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-w', '--window-length', type=int, default=50)
+    args = parser.parse_args()
+    main(args)
