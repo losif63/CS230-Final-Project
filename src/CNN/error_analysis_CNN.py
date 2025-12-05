@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 import sys
 import time, datetime
 import numpy as np
+import scipy
 
 from typing import Dict, Optional, Union
 import logging
@@ -131,15 +132,16 @@ def plot_test_results_error_analysis(
 
         # Add average line
         avg_pos_mse = avg_metrics.get('position_mse', np.mean(position_mse))
-        ax_pos.axhline(y=avg_pos_mse, color='k', linestyle='--',
-                      linewidth=2, label=f'Average Euclidian Error: {avg_pos_mse:.6f} [m]')
+        # ax_pos.axhline(y=avg_pos_mse, color='k', linestyle='--',
+        #               linewidth=2, label=f'Average Euclidian Error: {avg_pos_mse:.6f} [m]')
 
-        ax_pos.set_xlabel('Frame Number', fontsize=11)
-        ax_pos.set_ylabel('Euclidian [m]', fontsize=11)
+        ax_pos.set_xlabel('Frame Number', fontsize=14)
+        ax_pos.set_ylabel('Euclidian [m]', fontsize=14)
         ax_pos.set_title('Test set: Euclidian/Position "MSE" per Audio Frame', fontsize=12, fontweight='bold')
         ax_pos.set_xlim(0, num_samples)
         ax_pos.legend(loc='upper right')
         ax_pos.grid(True, alpha=0.3)
+        ax_pos.yaxis.set_label_coords(-0.05, 0.5)
     else:
         ax_pos.text(0.5, 0.5, "No Position MSE\nData Available",
                    transform=ax_pos.transAxes,
@@ -164,15 +166,15 @@ def plot_test_results_error_analysis(
 
         # Add average line
         avg_ang_error = avg_metrics.get('angular_error_deg', np.mean(angular_error))
-        ax_ang.axhline(y=avg_ang_error, color='k', linestyle='--',
-                      linewidth=2, label=f'Average Angular error: {avg_ang_error:.2f}°')
+        # ax_ang.axhline(y=avg_ang_error, color='k', linestyle='--',
+        #               linewidth=2, label=f'Average Angular error: {avg_ang_error:.2f}°')
 
         #ax_ang.set_xlabel('Frame Number', fontsize=11)
-        ax_ang.set_ylabel('Angular Error (degrees)', fontsize=11)
+        ax_ang.set_ylabel('Angular Error [°]', fontsize=14)
         ax_ang.set_title('Test set: Angular Error per Audio Frame', fontsize=12, fontweight='bold')
         ax_ang.set_xlim(0, num_samples)
         ax_ang.set_ylim(0, 60)
-        ax_ang.legend(loc='upper right')
+        ax_ang.legend(loc='upper right', fontsize=16)
         ax_ang.grid(True, alpha=0.3)
         ax_ang.set_xticklabels([])
     else:
@@ -194,19 +196,20 @@ def plot_test_results_error_analysis(
         
     #ax_pos.plot(np.arange(N_frames_test), positional_change_vector, color='cyan', linewidth=1.8, alpha=0.7, linestyle = '--', label = "Positional change [m]")
     ax_pos.plot(np.arange(N_frames_test), positional_vector - np.average(positional_vector), color='green', alpha=1.0, linestyle = '-', label = r"Position - $\mu_{\mathrm{Position}}$ [m]")
-    ax_pos.legend(loc='best')
+    ax_pos.legend(loc='best', fontsize=16)
     
     ax_ang.plot(np.arange(N_frames_test), orientation_change_vector, label = 'Orientation change [°]', alpha = 0.6 )
-    leg = ax_ang.legend(loc='best')
-    leg.set_alpha(0.6)
+    leg = ax_ang.legend(loc='best', fontsize=14)
+    leg.set_alpha(0.3)
 
     ax_extra.plot(np.arange(N_frames_test), positional_vector - np.average(positional_vector), label = r"Position - $\mu_{\mathrm{Position}}$ [m]", color = 'g', alpha = 1.0)
     #ax_extra.plot(np.arange(N_frames_test), test_dataset.all_is_upside_down, label = "Is Upside Down", color = 'r', alpha = 1.0)
     
-    ax_extra.set_xlabel('Frame Number', fontsize=11)
-    ax_extra.set_ylabel('Position [m]', fontsize=11)
+    ax_extra.set_xlabel('Frame Number', fontsize=14)
+    ax_extra.set_ylabel('Position [m]', fontsize=14)
+    ax_extra.yaxis.set_label_coords(-0.08, 0.5)
     ax_extra.set_xlim(0, N_frames_test)
-    ax_extra.legend(loc='upper right')
+    ax_extra.legend(loc='upper right', fontsize=16)
     ax_extra.grid(True, alpha=0.3)
 
     return ax_pos, ax_ang, ax_extra
@@ -287,6 +290,33 @@ def do_error_analysis_CS230_report():
         #     break
     print(f"   Building head change data took {datetime.timedelta(seconds=time.perf_counter()-start)}")
     
+    # Get correlation coefficient:
+    x_ = loaded_data['angular_error_deg']
+    y_ = positional_vector - np.average(positional_vector)  
+    r = np.corrcoef(x_, y_)[0,1]
+    print(f"Pearson correlation coefficient rotation = {r}")
+    x_ = loaded_data['position_mse']  
+    r = np.corrcoef(x_, y_)[0,1]
+    print(f"Pearson correlation coefficient pos = {r}")
+    # Cross-correlation
+    cross_corr = scipy.signal.correlate(x_, y_, mode='full')
+    lags = np.arange(-len(x_)+1, len(x_))
+    
+    peak_lag = lags[np.argmax(np.abs(cross_corr))]
+    peak_value = cross_corr[peak_lag]
+
+    plt.figure(figsize=(10, 5))
+    plt.title("Cross-correlation")
+    plt.plot(lags, cross_corr, label='Cross-correlation')
+    plt.axvline(0, color='k', linestyle='--', label='Zero lag')
+    plt.axvline(peak_lag, color='r', linestyle='--', label=f'Peak lag = {peak_lag}')
+    plt.scatter(peak_lag, peak_value, color='red')
+    plt.xlabel('Lag')
+    plt.ylabel('Cross-correlation')
+    plt.title('Cross-correlation between x and y')
+    plt.legend()
+    plt.grid(True)
+    
     
     ###############################
     # Plotting:
@@ -305,6 +335,7 @@ def do_error_analysis_CS230_report():
     )
     
     plt.show()
+
 
 if __name__ == '__main__':
     print("Error analysis CNN starting...")
