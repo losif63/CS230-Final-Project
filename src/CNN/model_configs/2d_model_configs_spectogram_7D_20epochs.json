@@ -336,7 +336,7 @@
 	  "Modification": "Compared to BASELINE: one more CNN stage, but operating at half filter sizes with 'same' padding. One more FC stage, with third FC stage smaller. More balanced strides across stages in max pool. CNN filter size in frequency are smaller."
     },
     {
-      "model_name": "17_LLM_ultra_deep_and_wide_1_spectogram",
+      "model_name": "17_more_common_ultra_deep_and_wide_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -357,7 +357,7 @@
 	  "Modification": "Compared to BASELINE: two more CNN stage, but operating at half filter sizes with 'same' padding. One more FC stage. More balanced strides across stages in max pool. CNN filter size in frequency are smaller."
     },
     {
-      "model_name": "18_LLM_multi_scale_high_res_1_spectogram",
+      "model_name": "18_more_common_multi_scale_high_res_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -378,7 +378,7 @@
 	  "Modification": "Compared to BASELINE: one more CNN and FC stage, CNNs  operating at half filter sizes with 'same' padding. Max pool striding constant at 2. CNN filter size in frequency are smaller"
     },
     {
-      "model_name": "19_LLM_wide_shallow_fast_1_spectogram",
+      "model_name": "19_more_common_wide_shallow_fast_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -399,7 +399,7 @@
 	  "Modification": "Compared to BASELINE: one less CNN and FC stage, CNNs operating at double filter sizes in time with 'same' padding, but smaller in frequency. Larger strides in maxpool layers."
     },
     {
-      "model_name": "20_LLM_deep_residual_style_1_spectogram",
+      "model_name": "20_more_common_deep_residual_style_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -420,7 +420,7 @@
       "Modification": "Compared to BASELINE: deep model with 8 CNN stages growing from 32 to 512 filters of small kernel size (7 down to 3). Alternating strides (2,1) and max-pooling (2,0). Slightly larger learning rate"
     },
     {
-      "model_name": "21_LLM_multi_scale_receptive_1_spectogram",
+      "model_name": "21_more_common_multi_scale_receptive_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -441,7 +441,7 @@
 	  "Modification": "Compared to BASELINE: 6 CNN stages growing from 64 to 256 filters, with alternating filter sizes (larger,smaller) but a max filter size of 33. Alternative strides in both CNN and max-pool layers. 1 extra FC stage."
     },
     {
-      "model_name": "22_LLM_aggressive_early_downsample_1_spectogram",
+      "model_name": "22_more_common_aggressive_early_downsample_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -461,7 +461,7 @@
       "Modification": "Compared to BASELINE: 1 extra CNN stage. Generally larger number of filters, but lower filter sizes and 'same' padding. Strong striding in the first CNN layers. Some skip max-pooling."
     },
     {
-      "model_name": "23_LLM_large_receptive_field_1_spectogram",
+      "model_name": "23_more_common_large_receptive_field_1_spectogram",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 1201,
@@ -481,7 +481,7 @@
 	  "Modification": "Compared to BASELINE: 2 extra CNN stages with smaller filter sizes, 'same' padding. Skip max-pooling every second layer. Larger capacity FC stages."
     },
     {
-        "model_name": "24_LLM_optimized_v3_aggressive_time_pooling",
+        "model_name": "24_more_common_optimized_v3_aggressive_time_pooling",
         "n_channels": 6,
         "samples_per_frame": 1201,
         "input_height": 1201,
@@ -522,7 +522,7 @@
       "hypothesis": "Strided convolutions learn better downsampling than fixed pooling. Constant channel width prevents bottlenecks. Large FC compensates for aggressive spatial reduction. 2D striding captures spectro-temporal structure better than 1D max-pooling."
     },
     {
-        "model_name": "26_LLM_optimized_v5_frequency_focused",
+        "model_name": "26_optimized_v5_frequency_focused",
         "n_channels": 6,
         "samples_per_frame": 1201,
         "input_height": 1201,
@@ -542,7 +542,7 @@
 		"Modification": "Compared to BASELINE: +1 CNN stage, slightly larger FC stages, smaller CNN kernels, 2-3 max-pooling strides, larger CNN filters and CNN striding in time domain."
       },
       {
-        "model_name": "27_LLM_optimized_v6_multi_scale_temporal",
+        "model_name": "27_optimized_v6_multi_scale_temporal",
         "n_channels": 6,
         "samples_per_frame": 1201,
         "input_height": 1201,
@@ -563,3 +563,4 @@
       }
   ]
 }
+
