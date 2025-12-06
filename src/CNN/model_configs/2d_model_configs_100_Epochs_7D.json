@@ -301,7 +301,7 @@
       "Estimated total size": "90.98 MB/input"
     },
     {
-      "model_name": "16_LLM_large_capacity_baseline_1_2d",
+      "model_name": "16_common_large_capacity_baseline_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -320,7 +320,7 @@
       "trainable_params": "959,431"
     },
     {
-      "model_name": "17_LLM_ultra_deep_and_wide_1_2d",
+      "model_name": "17_common_ultra_deep_and_wide_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -339,7 +339,7 @@
       "trainable_params": "3,078,215"
     },
     {
-      "model_name": "18_LLM_multi_scale_hig_res_1_2d",
+      "model_name": "18_common_multi_scale_hig_res_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -358,7 +358,7 @@
       "trainable_params": "2,743,111"
     },
     {
-      "model_name": "19_LLM_wide_shallow_fast_1_2d",
+      "model_name": "19_common_wide_shallow_fast_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -379,7 +379,7 @@
       "hypothesis" : "Wide kernels can capture long-range temporal patterns with less depth"
     },
     {
-      "model_name": "20_LLM_deep_residual_style_1_2d",
+      "model_name": "20_common_deep_residual_style_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -400,7 +400,7 @@
       "hypothesis": "Alternating kernel sizes capture multiple temporal scales simultaneously"
     },
     {
-      "model_name": "21_LLM_multi_scale_receptive_1_2d",
+      "model_name": "21_common_multi_scale_receptive_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -421,7 +421,7 @@
       "hypothesis" : "Gradual depth increase with small kernels mimics residual networks"
     },
     {
-      "model_name": "22_LLM_aggressive_early_downsample_1_2d",
+      "model_name": "22_aggressive_early_downsample_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -442,7 +442,7 @@
       "hypothesis" : "Early aggressive downsampling reduces computation while preserving key features."
     },
     {
-      "model_name": "23_LLM_large_receptive_field_1_2d",
+      "model_name": "23_large_receptive_field_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
@@ -463,7 +463,7 @@
       "hypothesis" : "Large receptive fields capture long-range dependencies in audio."
     },
     {
-      "model_name": "24_LLM_lightweight_mobile_1_2d",
+      "model_name": "24_common_lightweight_mobile_1_2d",
       "n_channels": 6,
       "samples_per_frame": 1201,
       "input_height": 2,
