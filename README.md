@@ -26,5 +26,6 @@ update data path in config.py
 python main.py
 
 # CNN - src/CNN
-# CRNN - src/crnn, run main.py
+# CRNN - src/crnn
+run main.py
 # Sequential - src/sequential
