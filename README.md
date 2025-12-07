@@ -34,7 +34,7 @@ python main.py
   * TRAIN_CACHE_FN, VAL_CACHE_FN, TEST_CACHE_FN in config.py are the name of the cached .hdf5 files for train, validation, test sets, respectively (to speed up dataloading, a cached dataset is created in an .hdf5 file)
 * `error_analysis.py`      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Some plots and metrics for error analysis of the 1D CNN on the test dataset.
 * `histy_io.py`            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Utility functions for saving and loading evaluation CNN training history data.
-* $${\color{green}\texttt{main\_cnn.py}}$$            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Main CNN training script. Handles three different types of training. See to run below.
+* $${\color{green}\mathrm{main\\_cnn.py}}$$            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Main CNN training script. Handles three different types of training. See to run below.
 * `metrics.py`             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Loss functions and evaluation metrics
 * `model_configs.json`     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# .json file with different model configurations.
 * `plotting.py`            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Plotting utilities
