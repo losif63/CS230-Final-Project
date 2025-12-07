@@ -66,7 +66,7 @@ cd CNN
 python cnn_main.py
 ```
 
-## To change input type (audio vs spectogram vs 2d input)
+#### To change input type (audio vs spectogram vs 2d input)
 Modify the following inputs to the three functions in `cnn_main.py`:
 1. For raw audio: set `apply_spectograms_params_=None` and `apply_mag_and_gd=False`
 2. For 2D inputs (log-magnitude and group delay): set `apply_spectograms_params_=None` and `apply_mag_and_gd=True`
