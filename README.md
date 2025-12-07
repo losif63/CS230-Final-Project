@@ -48,14 +48,14 @@ pip install -r requirements.txt
 ```
 update data path and other major configs in config.py
 
-`cnn_main.py` has 3 possible types of runs:
+$${\color{green}\mathrm{main\\_cnn.py}}$$ has 3 possible types of runs:
 * single model: trains a single model
-  * call `launch_single_simple_model_training()` function
+  * call $${\color{green}\mathrm{launch\\_single\\_simple\\_model\\_training()}}$$ function
 * multiple model training, sequential: trains a set of models from an input .json file, one after the other on a single device (E.g., GPU-0)
-  * call `launch_sequential_training()`
+  * call $${\color{green}\mathrm{launch\\_sequential\\_training()}}$$  
   * NUM_WORKERS_SEQUENTIAL in config.py controls the number of multiprocessors in the dataset loader. For our workstreams, we don't need a lot since most computing is done on the GPU. 
 * multiple model training, parallel: trains a set of models from an input .json file in paralle. Here, the script pulls all available devices (e.g., GPU-0, GPU-1, ..., GPU-8) and trains one or more (see TRAININGS_PER_GPU in config.py) models per available device in PARALLEL. Use this if you have multiple GPUs. 
-  * call `launch_parallel_training()`
+  * call  $${\color{green}\mathrm{launch\\_parallel\\_training()}}$$
   * GPU_ASSIGNMENT_STRATEGY in config.py controls how the model assignment from the .json file is done: "round_robin" or "sequential" (model 0 --> GPU0, model 1--> GPU 1 etc.). This can help load-balance the GPU usage and/or when the training will finish. Note this depends on how you've constructed the input .json file: most commonly, you'd construct variations sequentially, in which case a "round_robin" training would make sense for load_balancing. Please read config.py for more details.
   * Please reach a nice balance (use nvidia-smi or see when you're running out of memory) between TRAININGS_PER_GPU (how many models are trained in parallel per each GPU device) and batch size (BATCH_SIZE in config.py)
   * NUM_WORKERS_PARALLEL in config.py controls the number of multiprocessors in the dataset loader. For our workstreams, we don't need a lot since most computing is done on the GPU. 
