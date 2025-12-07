@@ -63,7 +63,13 @@ def _debug_save_spectrogram_visualizations(
     import matplotlib.pyplot as plt
     # Get the spectrogram for the fixed sample
     spec_sample = audio_batch_device[train_idx].cpu().numpy()  # Shape: (n_channels, freq_bins, time_bins)
-    n_channels = spec_sample.shape[0]
+    n_channels, n_freq_bins, n_time_bins = spec_sample.shape
+    
+    # Sampling frequency
+    fs = 48000.0
+    # Compute frequency axis (only positive frequencies if spectrogram is magnitude)
+    freqs = np.fft.fftfreq(n_freq_bins * 2, d=1/fs)[:n_freq_bins]
+    freqs_kHz = freqs*1e-3
     
     print(f"\n{'='*80}")
     print(f"SAVING SPECTROGRAM VISUALIZATIONS {str_compute}")
@@ -80,12 +86,13 @@ def _debug_save_spectrogram_visualizations(
             aspect='auto',
             origin='lower',
             cmap='viridis',
-            interpolation='nearest'
+            interpolation='nearest',
+            extent=[0, n_time_bins, freqs_kHz[0], freqs_kHz[-1]]# map y-axis to frequency
         )
         
         ax.set_title(f'{str_compute} Spectrogram - Channel {ch_idx}', fontsize=14)
         ax.set_xlabel('Time Bins', fontsize=12)
-        ax.set_ylabel('Frequency Bins', fontsize=12)
+        ax.set_ylabel('Frequency [kHz]', fontsize=12)
         
         # Add colorbar
         cbar = plt.colorbar(im, ax=ax)
