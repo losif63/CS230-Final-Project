@@ -26,22 +26,21 @@ update data path in config.py
 python main.py
 
 # CNN - src/CNN
-* `cnn_2d_model`           &nbsp;&nbsp;&nbsp;&nbsp; $${\color{green}\mathrm{\text{#} \space 2D \space CNN \space model \space classes \space and \space orchestration}}$$
-* `cnn_model`              # 1D CNN model classes and orchestration
-* `config.py`              # General configuration settings. See also model_configs\*.json
-* `data_utils.py`          # Data loading utilities
-* `dataset.py`             # Dataset implementation. Note loaded dataset is pinned in CPU memory.
+* `cnn_2d_model`           &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# 2D CNN model classes and orchestration
+* `cnn_model`              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# 1D CNN model classes and orchestration
+* `config.py`              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# General configuration settings. See also model_configs\*.json
+* `data_utils.py`          &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Data loading utilities
+* `dataset.py`             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Dataset implementation. Note loaded dataset is pinned in CPU memory.
   * TRAIN_CACHE_FN, VAL_CACHE_FN, TEST_CACHE_FN in config.py are the name of the cached .hdf5 files for train, validation, test sets, respectively (to speed up dataloading, a cached dataset is created in an .hdf5 file)
-* `error_analysis.py`      # Some plots and metrics for error analysis of the 1D CNN on the test dataset.
-* `histy_io.py`            # Utility functions for saving and loading evaluation CNN training history data.
-* `main_cnn.py`            # Main CNN training script. Handles three different types of training. See to run below.
-* `metrics.py`             # Loss functions and evaluation metrics
-* `model_configs.json`     # .json file with different model configurations.
-* `plotting.py`            # Plotting utilities
-* `t_test.py`              # Module that does a t-test analysis over multiple models based on type of input.
-* `train.py`               # Training and evaluation functions. One spectogram plotting function.
-
-* requirements.txt       # Python dependencies
+* `error_analysis.py`      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Some plots and metrics for error analysis of the 1D CNN on the test dataset.
+* `histy_io.py`            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Utility functions for saving and loading evaluation CNN training history data.
+* `main_cnn.py`            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Main CNN training script. Handles three different types of training. See to run below.
+* `metrics.py`             &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Loss functions and evaluation metrics
+* `model_configs.json`     &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# .json file with different model configurations.
+* `plotting.py`            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Plotting utilities
+* `t_test.py`              &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Module that does a t-test analysis over multiple models based on type of input.
+* `train.py`               &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Training and evaluation functions. One spectogram plotting function.
+* `requirements.txt`       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;# Python dependencies
 
 To run:
 ```
