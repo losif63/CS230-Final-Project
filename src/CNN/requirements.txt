@@ -1,0 +1,8 @@
+torch>=2.0.0
+torchaudio>=2.0.0
+numpy>=1.21.0
+scipy>=1.7.0
+matplotlib>=3.4.0
+h5py>=3.15.1
+torchsummary>=1.5.1
+tqdm>=4.62.0
