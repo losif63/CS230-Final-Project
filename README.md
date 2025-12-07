@@ -5,7 +5,7 @@
 * Sebastian Preprelita
 
 
-MLP Baseline: 
+# MLP Baseline: 
 * config.py              # Configuration settings
 * data_utils.py          # Data loading utilities
 * dataset.py             # Dataset implementation
@@ -24,3 +24,7 @@ pip install -r requirements.txt
 update data path in config.py
 
 python main.py
+
+# CNN - src/CNN
+# CRNN - src/crnn, run main.py
+# Sequential - src/sequential
