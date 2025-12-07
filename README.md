@@ -26,7 +26,7 @@ update data path in config.py
 python main.py
 
 # CNN - src/CNN
-* `cnn_2d_model`           &nbsp;&nbsp;&nbsp;&nbsp; $${\color{green}\# \space 2D \space CNN \space model \space classes \space and \space orchestration}$$
+* `cnn_2d_model`           &nbsp;&nbsp;&nbsp;&nbsp; $${\color{green}2D \space CNN \space model \space classes \space and \space orchestration}$$
 * `cnn_model`              # 1D CNN model classes and orchestration
 * `config.py`              # General configuration settings. See also model_configs\*.json
 * `data_utils.py`          # Data loading utilities
