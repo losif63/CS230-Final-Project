@@ -26,6 +26,7 @@ update data path in config.py
 python main.py
 
 # CNN - src/CNN
+<span style="color:green;">This text is green on GitHub Pages.</span>
 * `cnn_2d_model`           &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:green"># 2D CNN model classes and orchestration</span> 
 * `cnn_model`              # 1D CNN model classes and orchestration
 * `config.py`              # General configuration settings. See also model_configs\*.json
