@@ -5,7 +5,7 @@
 * Sebastian Preprelita
 
 
-# MLP Baseline: 
+# MLP Baseline - src/baseline
 * config.py              # Configuration settings
 * data_utils.py          # Data loading utilities
 * dataset.py             # Dataset implementation
