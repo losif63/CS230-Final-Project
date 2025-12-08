@@ -16,20 +16,6 @@ This project uses the [EasyCom Dataset](https://imperialcollegelondon.github.io/
 - **Sessions**: 12 sessions split into train (sessions 1-10), validation (session 11), and test (session 12)
 - **Annotations**: Speech transcriptions for filtering active speech frames
 
-### Dataset Structure
-```
-EasyComDataset/Main/
-├── Glasses_Microphone_Array_Audio/
-│   └── Session_X/
-│       └── array_D*_S*_M*.wav
-├── Tracked_Poses/
-│   └── Session_X/
-│       └── array_D*_S*_M*.json
-└── Speech_Transcriptions/
-    └── Session_X/
-        └── array_D*_S*_M*.json
-```
-
 ## Project Structure
 
 ```
